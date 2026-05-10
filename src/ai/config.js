@@ -1,3 +1,57 @@
+/**
+ * @file ai/config.js
+ * @description AI 配置和常量模块
+ *
+ * ============================================================================
+ * 内容概述
+ * ============================================================================
+ *
+ * 本模块定义了 AI 评估和决策所需的所有常量配置：
+ *
+ * 1. 棋子价值表 (PIECE_VALUES)
+ *    - 每种棋子类型的相对价值
+ *    - 用于评估子力优势
+ *
+ * 2. 位置评估表 (POSITION_TABLES)
+ *    - 8x8 矩阵，定义每个格子对每种棋子的价值
+ *    - 白方视角：行号越小越靠近白方初始位置
+ *    - 黑方视角会自动翻转
+ *
+ * 3. 难度等级配置 (DIFFICULTY_LEVELS)
+ *    - 四种难度：新手、中等、困难、大师
+ *    - 每种难度有独立的搜索深度、权重、特性开关
+ *
+ * 4. 中心格子集合 (CENTER_SQUARES)
+ *    - d4, e4, d5, e5 四个格子
+ *    - 控制中心是开局理论的核心
+ *
+ * 5. 发展相关配置 (DEVELOPMENT_SQUARES)
+ *    - 定义各颜色棋子的初始位置
+ *    - 用于判断棋子是否已经出动
+ *
+ * 6. 直线方向 (LINE_DIRECTIONS)
+ *    - 用于车、象、后的直线攻击计算
+ *    - 8 个方向：上、下、左、右、4个对角线
+ */
+
+// ==================== 棋子价值表 ====================
+
+/**
+ * 棋子相对价值表
+ *
+ * 数值说明：
+ * - 兵 (p): 100 - 最基础的子力单位
+ * - 马 (n): 320 - 马的价值略高于象
+ * - 象 (b): 330 - 通常与马相当
+ * - 车 (r): 500 - 车是强子，价值约等于一个象+兵
+ * - 后 (q): 900 - 后的价值仅次于王
+ * - 王 (k): 20000 - 王的价值极高，丢失即游戏结束
+ *
+ * 这些数值用于：
+ * - 计算子力优势
+ * - 评估交换是否合算
+ * - 判断是否应该吃子
+ */
 export const PIECE_VALUES = {
   p: 100,
   n: 320,
@@ -7,19 +61,57 @@ export const PIECE_VALUES = {
   k: 20000,
 }
 
+/**
+ * 低价值判定边界
+ *
+ * 当攻击方价值 <= 被攻击方价值 - LOWER_VALUE_MARGIN 时
+ * 认为攻击方是"明显低价值"的棋子
+ *
+ * 例如：马(320) 攻击象(330)，330 - 320 = 10 < 30，所以马不是"明显低价值"
+ *      兵(100) 攻击马(320)，320 - 100 = 220 > 30，所以兵是"明显低价值"
+ *
+ * 用于判断战术可能性和交换决策
+ */
 export const LOWER_VALUE_MARGIN = 30
 
+// ==================== 位置评估表 ====================
+
+/**
+ * 棋子位置评估表
+ *
+ * 设计理念：
+ * - 兵：位置越中心越有价值，到达第7/8行时最有价值
+ * - 马：在中心最活跃，边角位置受到限制
+ * - 象：在中心控制更多格子
+ * - 车：在开放线上最有力，初始位置价值最低
+ * - 后：非常灵活，在中心最强大
+ * - 王：开局在角落，残局逐渐向中心移动
+ *
+ * 注意：
+ * - 这些表是白方视角
+ * - 评估黑方时需要翻转（7 - rowIndex）
+ * - 数值为正表示该位置对该方有利
+ *
+ * @example
+ * // 白方兵在 e4(d4 的第5行第4列，index=4) 的位置分为 30
+ * // 黑方兵在 e4 的位置分需要翻转：POSITION_TABLES.p[7-4][4]
+ */
 export const POSITION_TABLES = {
+  // 兵的位置评估表
+  // 特征：初始位置(第2行)价值低，前进到第4/5行时价值最高
   p: [
-    [0, 0, 0, 0, 0, 0, 0, 0],
-    [50, 50, 50, 50, 50, 50, 50, 50],
-    [10, 10, 20, 30, 30, 20, 10, 10],
-    [5, 5, 10, 25, 25, 10, 5, 5],
-    [0, 0, 0, 20, 20, 0, 0, 0],
-    [5, -5, -10, 0, 0, -10, -5, 5],
-    [5, 10, 10, -20, -20, 10, 10, 5],
-    [0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],      // 第8行（黑方初始兵行）
+    [50, 50, 50, 50, 50, 50, 50, 50], // 第7行（黑方兵冲锋目标）
+    [10, 10, 20, 30, 30, 20, 10, 10], // 第6行
+    [5, 5, 10, 25, 25, 10, 5, 5],     // 第5行（白方兵到达此位置有优势）
+    [0, 0, 0, 20, 20, 0, 0, 0],       // 第4行
+    [5, -5, -10, 0, 0, -10, -5, 5],   // 第3行
+    [5, 10, 10, -20, -20, 10, 10, 5], // 第2行（白方初始兵行）
+    [0, 0, 0, 0, 0, 0, 0, 0],        // 第1行（白方初始位置）
   ],
+
+  // 马的位置评估表
+  // 特征：在角落位置(-50)严重受限，中心位置(+20)最有利
   n: [
     [-50, -40, -30, -30, -30, -30, -40, -50],
     [-40, -20, 0, 5, 5, 0, -20, -40],
@@ -30,6 +122,9 @@ export const POSITION_TABLES = {
     [-40, -20, 0, 0, 0, 0, -20, -40],
     [-50, -40, -30, -30, -30, -30, -40, -50],
   ],
+
+  // 象的位置评估表
+  // 特征：中心位置最有利，边角位置较差
   b: [
     [-20, -10, -10, -10, -10, -10, -10, -20],
     [-10, 5, 0, 0, 0, 0, 5, -10],
@@ -40,6 +135,9 @@ export const POSITION_TABLES = {
     [-10, 0, 0, 0, 0, 0, 0, -10],
     [-20, -10, -10, -10, -10, -10, -10, -20],
   ],
+
+  // 车的位置评估表
+  // 特征：初始位置价值最低，开放线（a1/h1行）中间位置价值最高
   r: [
     [0, 0, 0, 5, 5, 0, 0, 0],
     [-5, 0, 0, 0, 0, 0, 0, -5],
@@ -50,6 +148,9 @@ export const POSITION_TABLES = {
     [5, 10, 10, 10, 10, 10, 10, 5],
     [0, 0, 0, 0, 0, 0, 0, 0],
   ],
+
+  // 后的位置评估表
+  // 特征：极度灵活，中心位置价值极高，边角受限严重
   q: [
     [-20, -10, -10, -5, -5, -10, -10, -20],
     [-10, 0, 0, 0, 0, 0, 0, -10],
@@ -60,6 +161,9 @@ export const POSITION_TABLES = {
     [-10, 0, 5, 0, 0, 0, 0, -10],
     [-20, -10, -10, -5, -5, -10, -10, -20],
   ],
+
+  // 王的位置评估表
+  // 特征：开局极度脆弱（负值），残局在中心更安全
   k: [
     [-30, -40, -40, -50, -50, -40, -40, -30],
     [-30, -40, -40, -50, -50, -40, -40, -30],
@@ -72,58 +176,96 @@ export const POSITION_TABLES = {
   ],
 }
 
+// ==================== 难度等级配置 ====================
+
+/**
+ * 难度等级数组
+ *
+ * 每种难度包含以下属性：
+ * - key: 难度唯一标识键
+ * - label: 显示给用户的中文名称
+ * - depth: 搜索深度（用于自定义 AI 的 Minimax）
+ * - randomRange: 随机扰动范围，增加 AI 变化性
+ * - usePositionalEval: 是否使用位置评估
+ * - 各种权重配置：centerWeight、attackWeight、coordinationWeight 等
+ *
+ * 注意：困难和大师模式使用 Stockfish 引擎，不是自定义 AI
+ *
+ * @example
+ * // 新手难度的配置
+ * {
+ *   key: 'beginner',
+ *   label: '新手',
+ *   depth: 2,              // 只搜索2层
+ *   randomRange: 24,       // 较大的随机扰动
+ *   usePositionalEval: false, // 不使用位置评估，更"弱"
+ *   ...
+ * }
+ */
 export const DIFFICULTY_LEVELS = [
+  // ========== 新手难度 ==========
   {
     key: 'beginner',
     label: '新手',
-    depth: 2,
-    randomRange: 24,
-    usePositionalEval: false,
+    depth: 2,           // 浅层搜索
+    randomRange: 24,    // 大随机扰动，导致更多"失误"
+    usePositionalEval: false,  // 不使用精细位置评估
     positionalWeight: 1,
-    centerWeight: 0,
-    attackWeight: 0,
+    centerWeight: 0,    // 不考虑中心控制
+    attackWeight: 0,    // 不考虑攻击压力
+    // 无需其他高级权重
   },
+
+  // ========== 中等难度 ==========
   {
     key: 'medium',
     label: '中等',
-    depth: 3,
-    randomRange: 8,
+    depth: 3,           // 增加搜索深度
+    randomRange: 8,     // 减小随机性
     usePositionalEval: true,
     positionalWeight: 2,
-    centerWeight: 28,
-    attackWeight: 0.1,
-    blunderWeight: 1.35,
-    coordinationWeight: 0.08,
-    pawnStructureWeight: 0.12,
-    tacticalWeight: 1,
-    useOpeningBook: true,
-    openingWeight: 28,
-    castlePawnWeight: 18,
+    centerWeight: 28,   // 中心控制重要
+    attackWeight: 0.1, // 轻微考虑攻击
+    blunderWeight: 1.35, // 失误惩罚权重
+    coordinationWeight: 0.08, // 子力协调权重
+    pawnStructureWeight: 0.12, // 兵结构权重
+    tacticalWeight: 1,   // 战术权重
+    useOpeningBook: true, // 使用开局库
+    openingWeight: 28,  // 开局权重
+    castlePawnWeight: 18, // 易位相关兵权重
   },
+
+  // ========== 困难难度 ==========
+  // 注意：此难度使用 Stockfish 引擎！
   {
     key: 'hard',
     label: '困难',
-    depth: 4,
-    engine: 'stockfish',
-    stockfishDepth: 8,
+    depth: 4,           // 自定义 AI 搜索深度（但实际用 Stockfish）
+    engine: 'stockfish', // 指定使用 Stockfish
+    stockfishDepth: 8,  // Stockfish 搜索深度
     randomRange: 8,
     usePositionalEval: true,
     positionalWeight: 1,
     centerWeight: 18,
     attackWeight: 0.08,
-    blunderWeight: 0.7,
+    blunderWeight: 0.7,  // 较低的失误惩罚
     coordinationWeight: 0.06,
     pawnStructureWeight: 0.1,
     tacticalWeight: 0.8,
     useOpeningBook: true,
     openingWeight: 28,
+    // Stockfish 配置（实际在 stockfishWorker.js 中应用）
+    // limitStrength: true, elo: 1700
   },
+
+  // ========== 大师难度 ==========
+  // 最高难度，使用 Stockfish 最高技能
   {
     key: 'master',
     label: '大师',
     depth: 4,
     engine: 'stockfish',
-    stockfishDepth: 16,
+    stockfishDepth: 16,  // 更深的 Stockfish 搜索
     randomRange: 8,
     usePositionalEval: true,
     positionalWeight: 1,
@@ -135,23 +277,61 @@ export const DIFFICULTY_LEVELS = [
     tacticalWeight: 0.8,
     useOpeningBook: true,
     openingWeight: 28,
+    // Stockfish 配置
+    // skillLevel: 20（最高技能）
   },
 ]
 
+/**
+ * 难度配置映射
+ *
+ * 将 DIFFICULTY_LEVELS 数组转换为以 key 为键的对象
+ * 便于通过难度键快速查找配置
+ *
+ * @example
+ * DIFFICULTY_BY_KEY['beginner'] 返回新手难度配置对象
+ * DIFFICULTY_BY_KEY['hard'] 返回困难难度配置对象
+ */
 export const DIFFICULTY_BY_KEY = Object.fromEntries(
   DIFFICULTY_LEVELS.map((difficulty) => [difficulty.key, difficulty])
 )
 
+// ==================== 中心格子 ====================
+
+/**
+ * 中心格子集合
+ *
+ * 国际象棋理论认为 d4, e4, d5, e5 四个格子构成"中心"
+ * 控制这些格子可以获得空间优势和子力调动灵活性
+ *
+ * 注意：传统的中心概念还包括周围格子，形成"扩展中心"
+ */
 export const CENTER_SQUARES = new Set(['d4', 'e4', 'd5', 'e5'])
 
+// ==================== 发展相关配置 ====================
+
+/**
+ * 各颜色棋子的初始发展位置配置
+ *
+ * 用于判断棋子是否已经"出动"（从初始位置移动）
+ *
+ * 结构：
+ * - knights: 马的初始位置
+ * - bishops: 象的初始位置
+ * - queen: 后的初始位置
+ * - king: 王的初始位置
+ * - castledSquares: 易位后王的位置（用于检测是否已易位）
+ */
 export const DEVELOPMENT_SQUARES = {
+  // 白方配置
   w: {
-    knights: ['b1', 'g1'],
-    bishops: ['c1', 'f1'],
-    queen: 'd1',
-    king: 'e1',
-    castledSquares: ['g1', 'c1'],
+    knights: ['b1', 'g1'],      // 马初始在 b1 和 g1
+    bishops: ['c1', 'f1'],      // 象初始在 c1 和 f1
+    queen: 'd1',                 // 后在 d1
+    king: 'e1',                  // 王在 e1
+    castledSquares: ['g1', 'c1'], // 易位后王可能在 g1（短易位）或 c1（长易位）
   },
+  // 黑方配置（镜像）
   b: {
     knights: ['b8', 'g8'],
     bishops: ['c8', 'f8'],
@@ -161,13 +341,29 @@ export const DEVELOPMENT_SQUARES = {
   },
 }
 
+// ==================== 直线方向 ====================
+
+/**
+ * 8 个直线方向的向量表示
+ *
+ * 用于计算直线攻击：
+ * - 第1组 [1,0]/-[1,0]：水平线（横向）
+ * - 第2组 [0,1]/[0,-1]：垂直线（纵向）
+ * - 第3组 [1,1]/[1,-1]：主对角线
+ * - 第4组 [-1,1]/[-1,-1]：副对角线
+ *
+ * 结合 LINE_DIRECTIONS 和棋盘坐标，可以：
+ * - 追踪直线上的所有格子
+ * - 检测穿透性攻击（如车的纵向攻击）
+ * - 判断牵制等战术
+ */
 export const LINE_DIRECTIONS = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-  [1, 1],
-  [1, -1],
-  [-1, 1],
-  [-1, -1],
+  [1, 0],    // 右（同一行向文件增加方向）
+  [-1, 0],   // 左
+  [0, 1],    // 上（向 rank 增加方向）
+  [0, -1],   // 下
+  [1, 1],    // 右上对角
+  [1, -1],   // 右下对角
+  [-1, 1],   // 左上对角
+  [-1, -1],  // 左下对角
 ]
