@@ -3,16 +3,16 @@
  * @description 国际象棋应用的主组件
  *
  * 职责概述：
- * - 持有棋局状态、玩家设置（颜色、模式、难度）等核心状态
+ * - 持有棋局状态、玩家设置（颜色、双方角色、难度）等核心状态
  * - 协调 UI 组件（Chessboard、侧边栏）和 AI 逻辑（通过 useComputerMove）
- * - 处理用户交互：拖拽走子、模式切换、难度切换、重新开始
+ * - 处理用户交互：拖拽走子、角色切换、难度切换、重新开始
  * - 管理棋盘高亮、将军闪烁等视觉效果
  *
  * 状态管理架构：
  * - game: Chess 实例，存储完整棋局状态（包括历史）
- * - playerColor: 玩家执棋颜色 ('w' 白方 / 'b' 黑方)
- * - gameMode: 对局模式 ('computer' 人机模式 / 'twoPlayer' 双人模式)
- * - difficultyKey: AI 难度等级键值 ('beginner'/'medium'/'hard'/'master')
+ * - playerColor: 我方执棋颜色 ('w' 白方 / 'b' 黑方)
+ * - mySideRole / opponentSideRole: 双方角色
+ * - myComputerDifficultyKey / opponentComputerDifficultyKey: 双方电脑难度
  * - boardResetCount: 用于强制重新渲染棋盘（清除拖拽残影）
  * - highlightedSquares: 拖拽时显示的可落点高亮
  * - flashSquares: 将军时需要闪烁的格子
@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { DIFFICULTY_BY_KEY, DIFFICULTY_LEVELS, getCurrentSearchDepth } from './chess-ai'
+import BoardSideStatus from './components/BoardSideStatus'
 import GameControls from './components/GameControls'
 import GameHeader from './components/GameHeader'
 import GameInfo from './components/GameInfo'
@@ -29,8 +30,9 @@ import MoveHistory from './components/MoveHistory'
 import OpeningActions from './components/OpeningActions'
 import SoundSettings from './components/SoundSettings'
 import { useComputerMove } from './hooks/useComputerMove'
-import { applyMoveToGame, canInteractWithSquare, cloneGameWithHistory, getCheckingSquares, getExposedKingSquaresAfterVisualMove, getKingSquare } from './lib/gameState'
+import { canInteractWithSquare, cloneGameWithHistory, getCheckingSquares, getExposedKingSquaresAfterVisualMove, getKingSquare } from './lib/gameState'
 import { getColorLabel, getDrawNotice, getStatusText, groupMovesByTurn } from './lib/gameStatus'
+import { canManualMove, getComputerTurnConfig, getOpponentColor } from './lib/sideControl'
 import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playInvalidMoveSound } from './lib/soundManager'
 import './App.css'
 
@@ -65,12 +67,6 @@ function App() {
   /** @type {string} 玩家执棋颜色，'w'=白方，'b'=黑方 */
   const [playerColor, setPlayerColor] = useState('w')
 
-  /** @type {string} 对局模式：'computer'=人机对战，'twoPlayer'=本地双人 */
-  const [gameMode, setGameMode] = useState('computer')
-
-  /** @type {string} AI 难度等级键值 */
-  const [difficultyKey, setDifficultyKey] = useState('medium')
-
   /** @type {string} 我方角色 */
   const [mySideRole, setMySideRole] = useState('player')
 
@@ -78,10 +74,10 @@ function App() {
   const [opponentSideRole, setOpponentSideRole] = useState('computer')
 
   /** @type {string} 我方电脑难度 */
-  const [myComputerDifficultyKey, setMyComputerDifficultyKey] = useState('medium')
+  const [myComputerDifficultyKey, setMyComputerDifficultyKey] = useState('hard')
 
   /** @type {string} 敌方电脑难度 */
-  const [opponentComputerDifficultyKey, setOpponentComputerDifficultyKey] = useState('medium')
+  const [opponentComputerDifficultyKey, setOpponentComputerDifficultyKey] = useState('hard')
 
   /** @type {{requestUrl:string, apiKey:string, modelName:string}} 我方 AI 模型配置 */
   const [myAiConfig, setMyAiConfig] = useState(DEFAULT_AI_CONFIG)
@@ -134,13 +130,26 @@ function App() {
    * 电脑执棋颜色
    * 规则：与玩家颜色相反
    */
-  const computerColor = playerColor === 'w' ? 'b' : 'w'
+  const opponentColor = getOpponentColor(playerColor)
+
+  const currentTurnRole = game.turn() === playerColor ? mySideRole : opponentSideRole
+
+  const activeComputerTurn = getComputerTurnConfig({
+    turnColor: game.turn(),
+    playerColor,
+    mySideRole,
+    opponentSideRole,
+    myComputerDifficultyKey,
+    opponentComputerDifficultyKey,
+  })
+
+  const activeDifficultyKey = activeComputerTurn?.difficultyKey ?? null
 
   /**
    * 当前难度配置的完整对象
    * 来源：chess-ai.js 中的 DIFFICULTY_BY_KEY 映射
    */
-  const difficulty = DIFFICULTY_BY_KEY[difficultyKey]
+  const difficulty = activeDifficultyKey ? DIFFICULTY_BY_KEY[activeDifficultyKey] : null
 
   /**
    * 是否使用 Stockfish 引擎
@@ -163,7 +172,7 @@ function App() {
    * 用途：显示给玩家的 AI 思考深度信息
    * 注意：Stockfish 难度显示的是 stockfishDepth，自定义 AI 显示配置的 depth
    */
-  const currentSearchDepth = getCurrentSearchDepth(fen, difficultyKey)
+  const currentSearchDepth = activeDifficultyKey ? getCurrentSearchDepth(fen, activeDifficultyKey) : 0
 
   /** 是否存在电脑角色，用于决定是否显示对局信息 */
   const hasComputerSide = mySideRole === 'computer' || opponentSideRole === 'computer'
@@ -172,18 +181,13 @@ function App() {
   const mySideSummary = `${ROLE_LABELS[mySideRole]} · ${getColorLabel(playerColor)}`
 
   /** 敌方摘要文案 */
-  const opponentSideSummary = `${ROLE_LABELS[opponentSideRole]} · ${getColorLabel(computerColor)}`
+  const opponentSideSummary = `${ROLE_LABELS[opponentSideRole]} · ${getColorLabel(opponentColor)}`
 
-  /** 信息卡显示的主要难度 */
-  const primaryDifficultyLabel = hasComputerSide
-    ? DIFFICULTY_BY_KEY[
-        opponentSideRole === 'computer'
-          ? opponentComputerDifficultyKey
-          : mySideRole === 'computer'
-            ? myComputerDifficultyKey
-            : difficultyKey
-      ]?.label ?? difficulty.label
-    : difficulty.label
+  const myBoardSideDetail = getBoardSideDetail(mySideRole, myComputerDifficultyKey, myAiConfig)
+  const opponentBoardSideDetail = getBoardSideDetail(opponentSideRole, opponentComputerDifficultyKey, opponentAiConfig)
+
+  /** 信息卡显示的当前回合电脑难度 */
+  const primaryDifficultyLabel = difficulty?.label ?? '无'
 
   /**
    * 玩家是否可以走棋
@@ -191,7 +195,12 @@ function App() {
    * - 棋局未结束（!game.isGameOver()）
    * - 并且（双人模式 或者 当前轮到玩家执棋）
    */
-  const canMove = !game.isGameOver() && (gameMode === 'twoPlayer' || game.turn() === playerColor)
+  const canMove = !game.isGameOver() && canManualMove({
+    turnColor: game.turn(),
+    playerColor,
+    mySideRole,
+    opponentSideRole,
+  })
 
   /**
    * 将死局面中被将军国王的位置
@@ -209,7 +218,11 @@ function App() {
   const drawNotice = getDrawNotice(game)
 
   /** 状态栏显示的文本，根据游戏状态动态生成 */
-  const statusText = getStatusText(game, playerColor, gameMode)
+  const statusText = getStatusText(game, {
+    playerColor,
+    mySideRole,
+    opponentSideRole,
+  })
 
   // ==================== 回调函数 ====================
 
@@ -238,6 +251,8 @@ function App() {
         if (!moveResult) {
           return currentGame
         }
+
+        triggerCheckFlash(nextGame)
 
         // 根据是否吃子播放不同音效
         if (moveResult.captured) {
@@ -268,12 +283,13 @@ function App() {
    */
   const { isComputerThinking, cancelPendingComputerMove } = useComputerMove({
     game,
-    gameMode,
-    computerColor,
-    difficultyKey,
+    computerColor: activeComputerTurn?.computerColor ?? null,
+    difficultyKey: activeComputerTurn?.difficultyKey ?? null,
     usesStockfish,
     applyComputerMove,
   })
+
+  const isCurrentSideThinking = isComputerThinking && (currentTurnRole === 'computer' || currentTurnRole === 'aiModel')
 
   // ==================== 副作用 ====================
 
@@ -285,7 +301,7 @@ function App() {
       // 确保音效风格与状态同步
       soundManager.setStyle(soundStyle)
     })
-  }, [])
+  }, [soundStyle])
 
   /**
    * 组件卸载时清理闪烁定时器
@@ -323,6 +339,8 @@ function App() {
     // 游戏结束时重置
     if (game.isGameOver()) {
       prevIsGameOverRef.current = true
+    } else {
+      prevIsGameOverRef.current = false
     }
   }, [fen, game])
 
@@ -402,6 +420,8 @@ function App() {
     cancelPendingComputerMove()
     setFlashSquares([])
     window.clearTimeout(flashTimeoutRef.current)
+    prevIsCheckRef.current = false
+    prevIsGameOverRef.current = false
     setPlayerColor(nextPlayerColor)
     setGame(new Chess())
     // 强制重新挂载棋盘，用来清掉无效拖拽后的残影。
@@ -425,16 +445,18 @@ function App() {
    *
    * 逻辑：
    * 1. 获取被将军方的颜色
-   * 2. 仅在人机模式下检查：当前回合是玩家且游戏未结束
+   * 2. 仅在被将军方为玩家角色时触发
    * 3. 找出王的位置和所有攻击它的敌方棋子位置
    * 4. 设置这些格子用于显示闪烁动画
    * 5. 760ms 后自动清除闪烁
    */
-  function triggerCheckFlash(nextGame = game) {
+  function triggerCheckFlash(nextGame) {
     const checkedColor = nextGame.turn()
 
     // 仅在真正被将军时触发（双人模式或轮到玩家时）
-    if (!nextGame.isCheck() || (gameMode === 'computer' && checkedColor !== playerColor)) {
+    const checkedRole = checkedColor === playerColor ? mySideRole : opponentSideRole
+
+    if (!nextGame.isCheck() || checkedRole !== 'player') {
       return
     }
 
@@ -541,6 +563,8 @@ function App() {
         })
 
         if (result) {
+          triggerCheckFlash(gameForMove)
+
           // 走子成功，更新棋局状态并播放音效
           setGame(gameForMove)
           if (result.captured) {
@@ -640,7 +664,7 @@ function App() {
     return () => {
       boardWrap.removeEventListener('contextmenu', handleContextMenu)
     }
-  }, [])
+  }, [highlightedSquares])
 
   // ==================== 音效控制 ====================
 
@@ -675,10 +699,20 @@ function App() {
       {/* 左侧：棋盘区域 */}
       <section className="board-panel">
         {/* 顶部状态区：标题、状态文案、思考提示、和棋提示 */}
-        <GameHeader statusText={statusText} isComputerThinking={isComputerThinking && gameMode === 'computer'} drawNotice={drawNotice} />
+        <GameHeader
+          statusText={statusText}
+          drawNotice={drawNotice}
+        />
 
         {/* 棋盘容器 */}
         <div className="board-wrap" ref={boardWrapRef}>
+          <BoardSideStatus
+            label={getColorLabel(opponentColor)}
+            detail={opponentBoardSideDetail}
+            isThinking={isCurrentSideThinking && game.turn() === opponentColor}
+            isActive={game.turn() === opponentColor}
+          />
+
           <Chessboard
             // key 变化会强制重新挂载组件，用于消除拖拽残影
             // 触发条件：玩家颜色变化 或 boardResetCount 变化
@@ -702,6 +736,13 @@ function App() {
               dropSquareStyle: { boxShadow: 'inset 0 0 1px 4px rgba(236, 201, 75, 0.85)' },  // 拖拽放置时目标格子样式
               animationDurationInMs: 220,  // 棋子移动动画时长
             }}
+          />
+
+          <BoardSideStatus
+            label={getColorLabel(playerColor)}
+            detail={myBoardSideDetail}
+            isThinking={isCurrentSideThinking && game.turn() === playerColor}
+            isActive={game.turn() === playerColor}
           />
         </div>
       </section>
@@ -756,6 +797,18 @@ function App() {
       </aside>
     </main>
   )
+}
+
+function getBoardSideDetail(role, computerDifficultyKey, aiConfig) {
+  if (role === 'computer') {
+    return `电脑 - ${DIFFICULTY_BY_KEY[computerDifficultyKey]?.label ?? computerDifficultyKey}`
+  }
+
+  if (role === 'aiModel') {
+    return `AI 模型 - ${aiConfig.modelName || '未设置模型'}`
+  }
+
+  return '玩家'
 }
 
 export default App

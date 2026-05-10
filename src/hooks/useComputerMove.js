@@ -70,7 +70,6 @@ import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
  */
 export function useComputerMove({
   game,
-  gameMode,
   computerColor,
   difficultyKey,
   usesStockfish,
@@ -281,7 +280,10 @@ export function useComputerMove({
     // 2. 轮到电脑行棋
     // 3. 游戏未结束
     const shouldThink =
-      gameMode !== 'twoPlayer' && game.turn() === computerColor && !game.isGameOver()
+      Boolean(computerColor)
+      && Boolean(difficultyKey)
+      && game.turn() === computerColor
+      && !game.isGameOver()
 
     if (!shouldThink) {
       return () => {
@@ -373,7 +375,7 @@ export function useComputerMove({
       window.clearTimeout(timer)
       cancelPendingComputerMove()
     }
-  }, [applyComputerMove, computerColor, difficultyKey, game, gameMode, usesStockfish])
+  }, [applyComputerMove, computerColor, difficultyKey, game, usesStockfish])
 
   // ========== 返回值 ==========
 

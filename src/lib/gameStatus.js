@@ -41,8 +41,10 @@ export function getColorLabel(color) {
  * 根据游戏状态生成完整的提示文案
  *
  * @param {Chess} game - 棋局实例
- * @param {string} playerColor - 玩家执棋颜色
- * @param {string} gameMode - 游戏模式
+ * @param {Object} perspective - 视角与角色配置
+ * @param {string} perspective.playerColor - 我方执棋颜色
+ * @param {string} perspective.mySideRole - 我方角色
+ * @param {string} perspective.opponentSideRole - 敌方角色
  * @returns {string} 状态提示文本
  *
  * 状态文案优先级：
@@ -53,7 +55,7 @@ export function getColorLabel(color) {
  * 5. 其他和棋 -> "和棋。"
  * 6. 正常局面 -> "轮到X行棋。/ 轮到你走，你执X。/ 电脑正在执X行棋。"
  */
-export function getStatusText(game, playerColor, gameMode) {
+export function getStatusText(game, { playerColor, mySideRole, opponentSideRole }) {
   // ========== 将死 ==========
   if (game.isCheckmate()) {
     // 将死时，turn() 返回的是输家（下一步该走但无子可动）
@@ -86,19 +88,23 @@ export function getStatusText(game, playerColor, gameMode) {
   const turnText = getColorLabel(game.turn())
   const suffix = game.isCheck() ? ' 当前被将军。' : ''
 
-  // 双人模式
-  if (gameMode === 'twoPlayer') {
+  const currentRole = game.turn() === playerColor ? mySideRole : opponentSideRole
+
+  // 双玩家模式
+  if (mySideRole === 'player' && opponentSideRole === 'player') {
     return `轮到${turnText}行棋。${suffix}`
   }
 
-  // 人机模式
-  const youAre = getColorLabel(playerColor)
-
-  if (game.turn() === playerColor) {
+  if (currentRole === 'player') {
+    const youAre = getColorLabel(game.turn())
     return `轮到你走，你执${youAre}。${suffix}`
   }
 
-  return `电脑正在执${turnText}行棋。${suffix}`
+  if (currentRole === 'computer') {
+    return `电脑正在执${turnText}行棋。${suffix}`
+  }
+
+  return `AI 模型正在执${turnText}行棋。${suffix}`
 }
 
 /**
