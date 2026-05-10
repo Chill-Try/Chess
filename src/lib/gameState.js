@@ -89,9 +89,19 @@ export function getCheckingSquares(game, color) {
 export function cloneGameWithHistory(game) {
   const nextGame = new Chess()
 
-  // 逐个应用历史走法
-  for (const move of game.history()) {
-    nextGame.move(move)
+  try {
+    // 逐个应用历史走法
+    for (const move of game.history()) {
+      nextGame.move(move)
+    }
+  } catch {
+    // 作弊等直接改盘后，后续 SAN 历史可能已无法从标准历史回放。
+    return new Chess(game.fen())
+  }
+
+  if (nextGame.fen() !== game.fen()) {
+    // 作弊等直接改盘操作不会写入标准历史，此时必须以当前真实盘面为准。
+    return new Chess(game.fen())
   }
 
   return nextGame
@@ -193,4 +203,38 @@ export function canInteractWithSquare(game, square) {
 
   const piece = game.get(square)
   return Boolean(piece) && piece.color === game.turn()
+}
+
+function transformPiecesForCurrentTurn(game, shouldTransformPiece, nextPieceType) {
+  if (game.isGameOver()) {
+    return game
+  }
+
+  const nextGame = new Chess(game.fen())
+  const currentTurnColor = nextGame.turn()
+  const board = nextGame.board()
+
+  for (let rowIndex = 0; rowIndex < board.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < board[rowIndex].length; columnIndex += 1) {
+      const piece = board[rowIndex][columnIndex]
+
+      if (!piece || piece.color !== currentTurnColor || !shouldTransformPiece(piece)) {
+        continue
+      }
+
+      const square = `${String.fromCharCode(97 + columnIndex)}${8 - rowIndex}`
+      nextGame.remove(square)
+      nextGame.put({ type: nextPieceType, color: piece.color }, square)
+    }
+  }
+
+  return nextGame
+}
+
+export function transformCurrentTurnPawnsToKnights(game) {
+  return transformPiecesForCurrentTurn(game, (piece) => piece.type === 'p', 'n')
+}
+
+export function transformCurrentTurnNonKingPiecesToQueens(game) {
+  return transformPiecesForCurrentTurn(game, (piece) => piece.type !== 'k', 'q')
 }

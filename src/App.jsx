@@ -30,7 +30,15 @@ import MoveHistory from './components/MoveHistory'
 import OpeningActions from './components/OpeningActions'
 import SoundSettings from './components/SoundSettings'
 import { useComputerMove } from './hooks/useComputerMove'
-import { canInteractWithSquare, cloneGameWithHistory, getCheckingSquares, getExposedKingSquaresAfterVisualMove, getKingSquare } from './lib/gameState'
+import {
+  canInteractWithSquare,
+  cloneGameWithHistory,
+  getCheckingSquares,
+  getExposedKingSquaresAfterVisualMove,
+  getKingSquare,
+  transformCurrentTurnNonKingPiecesToQueens,
+  transformCurrentTurnPawnsToKnights,
+} from './lib/gameState'
 import { getColorLabel, getDrawNotice, getStatusText, groupMovesByTurn } from './lib/gameStatus'
 import { canManualMove, getComputerTurnConfig, getOpponentColor } from './lib/sideControl'
 import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playInvalidMoveSound } from './lib/soundManager'
@@ -136,14 +144,14 @@ function App() {
   /** AI 运行时代际。重新开始时递增，用于强制重建整套 AI worker。 */
   const [aiRuntimeKey, setAiRuntimeKey] = useState(0)
 
-  /** 是否处于延迟重开等待中 */
-  const [pendingResetColor, setPendingResetColor] = useState(null)
+  /** 挂起中的延迟动作：重开或作弊 */
+  const [pendingAction, setPendingAction] = useState(null)
 
-  /** 是否已开始 1 秒重开倒计时 */
-  const [isResetDelayActive, setIsResetDelayActive] = useState(false)
+  /** 是否已开始 1 秒延迟倒计时 */
+  const [isPendingActionDelayActive, setIsPendingActionDelayActive] = useState(false)
 
-  /** 延迟重开定时器 */
-  const resetTimerRef = useRef(null)
+  /** 延迟动作定时器 */
+  const pendingActionTimerRef = useRef(null)
 
   // ==================== 派生状态（基于 game 计算）====================
 
@@ -245,6 +253,8 @@ function App() {
     opponentSideRole,
   })
 
+  const isCheatDisabled = game.isGameOver() || pendingAction !== null
+
   // ==================== 回调函数 ====================
 
   /**
@@ -327,7 +337,7 @@ function App() {
     minMoveDisplayMs: computerMoveDelayMs,
     gameSessionId: gameSessionRef.current,
     runtimeKey: aiRuntimeKey,
-    suppressNewTurns: pendingResetColor !== null,
+    suppressNewTurns: pendingAction !== null,
     onEngineCrash: () => {
       console.warn('[App] Stockfish worker crashed, rebuilding AI runtime')
       setAiRuntimeKey((current) => current + 1)
@@ -336,7 +346,8 @@ function App() {
   })
 
   const isCurrentSideThinking = isComputerThinking && (currentTurnRole === 'computer' || currentTurnRole === 'aiModel')
-  const isResetPending = pendingResetColor !== null
+  const isResetPending = pendingAction?.type === 'reset'
+  const isCheatPending = pendingAction?.type === 'cheat'
 
   // ==================== 副作用 ====================
 
@@ -358,31 +369,46 @@ function App() {
   useEffect(
     () => () => {
       window.clearTimeout(flashTimeoutRef.current)
-      window.clearTimeout(resetTimerRef.current)
+      window.clearTimeout(pendingActionTimerRef.current)
     },
     []
   )
 
   useEffect(() => {
-    if (pendingResetColor === null || isResetDelayActive || isComputerThinking || resetTimerRef.current !== null) {
+    if (pendingAction === null || isPendingActionDelayActive || isComputerThinking || pendingActionTimerRef.current !== null) {
       return
     }
 
-    console.info('[App] Current move settled, start delayed reset countdown', {
-      pendingResetColor,
+    console.info('[App] Current move settled, start delayed action countdown', {
+      pendingActionType: pendingAction.type,
       delayMs: 1000,
     })
 
-    setIsResetDelayActive(true)
-    window.clearTimeout(resetTimerRef.current)
-    resetTimerRef.current = window.setTimeout(() => {
-      resetTimerRef.current = null
-      setIsResetDelayActive(false)
-      const nextPlayerColor = pendingResetColor
-      setPendingResetColor(null)
-      resetGame(nextPlayerColor)
+    setIsPendingActionDelayActive(true)
+    window.clearTimeout(pendingActionTimerRef.current)
+    pendingActionTimerRef.current = window.setTimeout(() => {
+      pendingActionTimerRef.current = null
+      setIsPendingActionDelayActive(false)
+      const actionToApply = pendingAction
+      setPendingAction(null)
+
+      if (!actionToApply) {
+        return
+      }
+
+      if (actionToApply.type === 'reset') {
+        resetGame(actionToApply.nextPlayerColor)
+        return
+      }
+
+      if (actionToApply.type === 'cheat') {
+        setFlashSquares([])
+        window.clearTimeout(flashTimeoutRef.current)
+        setHighlightedSquares({})
+        setGame((currentGame) => actionToApply.transformGame(currentGame))
+      }
     }, 1000)
-  }, [isComputerThinking, isResetDelayActive, pendingResetColor])
+  }, [isComputerThinking, isPendingActionDelayActive, pendingAction])
 
   /**
    * 检测将军和游戏结束状态变化，播放对应音效
@@ -504,7 +530,7 @@ function App() {
   }
 
   function scheduleResetGame(nextPlayerColor = playerColor) {
-    if (pendingResetColor !== null) {
+    if (pendingAction !== null) {
       return
     }
 
@@ -512,7 +538,25 @@ function App() {
       nextPlayerColor,
     })
 
-    setPendingResetColor(nextPlayerColor)
+    cancelPendingComputerMove()
+    setPendingAction({
+      type: 'reset',
+      nextPlayerColor,
+    })
+  }
+
+  function handleCheatAction(transformGame) {
+    setIsCheatMenuOpen(false)
+
+    if (pendingAction !== null) {
+      return
+    }
+
+    cancelPendingComputerMove()
+    setPendingAction({
+      type: 'cheat',
+      transformGame,
+    })
   }
 
   /**
@@ -784,13 +828,17 @@ function App() {
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <h1 className="topbar-title">国际象棋</h1>
+          <h1 className="topbar-title">
+            <img className="topbar-logo" src="/chess-logo.svg" alt="" aria-hidden="true" />
+            <span>国际象棋</span>
+          </h1>
 
           <div className="topbar-menu-group">
             <div className="topbar-menu">
               <button
                 className={`topbar-menu-trigger${isCheatMenuOpen ? ' open' : ''}`}
                 type="button"
+                disabled={pendingAction !== null}
                 onClick={() => {
                   setIsCheatMenuOpen((current) => !current)
                   setIsSpeedMenuOpen(false)
@@ -805,21 +853,23 @@ function App() {
                   <button
                     className="topbar-menu-item"
                     type="button"
+                    disabled={isCheatDisabled}
                     onClick={() => {
-                      setIsCheatMenuOpen(false)
+                      handleCheatAction(transformCurrentTurnPawnsToKnights)
                     }}
                   >
-                    给马化腾充 Q 币
+                    {isCheatPending ? '等待作弊...' : '给马化腾充 Q 币'}
                   </button>
 
                   <button
                     className="topbar-menu-item"
                     type="button"
+                    disabled={isCheatDisabled}
                     onClick={() => {
-                      setIsCheatMenuOpen(false)
+                      handleCheatAction(transformCurrentTurnNonKingPiecesToQueens)
                     }}
                   >
-                    请陈帅吃肯德基
+                    {isCheatPending ? '等待作弊...' : '请陈帅吃肯德基'}
                   </button>
                 </div>
               ) : null}
@@ -927,6 +977,7 @@ function App() {
               label={getColorLabel(opponentColor)}
               detail={opponentBoardSideDetail}
               isThinking={isCurrentSideThinking && game.turn() === opponentColor}
+              statusText={game.turn() === opponentColor && opponentSideRole === 'player' ? '> 该你走棋了 <' : ''}
               isActive={game.turn() === opponentColor}
             />
 
@@ -959,6 +1010,7 @@ function App() {
               label={getColorLabel(playerColor)}
               detail={myBoardSideDetail}
               isThinking={isCurrentSideThinking && game.turn() === playerColor}
+              statusText={game.turn() === playerColor && mySideRole === 'player' ? '> 该你走棋了 <' : ''}
               isActive={game.turn() === playerColor}
             />
           </div>
