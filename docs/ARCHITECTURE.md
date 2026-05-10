@@ -12,17 +12,22 @@ React UI
 │   ├── GameControls.jsx
 │   ├── GameInfo.jsx
 │   ├── MoveHistory.jsx
+│   ├── OpeningActions.jsx
+│   ├── BoardSideStatus.jsx
 │   └── SoundSettings.jsx
 ├── hooks/
 │   └── useComputerMove.js
 ├── lib/
 │   ├── gameState.js
+│   ├── endgameDrill.js
 │   ├── gameStatus.js
 │   ├── workerUtils.js
 │   └── soundManager.js
 ├── chessWorker.js
 ├── stockfishWorker.js
-└── chess-ai.js
+├── chess-ai.js
+└── ai/
+    └── endgameBook.js
 ```
 
 ## 组件层
@@ -33,12 +38,47 @@ React UI
 
 - 持有棋局、模式、执棋方、难度、高亮和动画状态
 - 组合 `Chessboard` 与侧栏组件
-- 处理用户拖拽走子、切换模式、切换难度、重开对局
+- 处理用户拖拽走子、切换模式、切换难度、重开对局、残局练习入口
 - 将电脑走棋逻辑委托给 `useComputerMove`
 - 管理音效状态（风格、音量、静音）
+- 管理顶部栏菜单、作弊入口、升变选择条和残局练习生成
 - 维护两类棋盘反馈状态：
   - `highlightedSquares`：绿色合法落点提示
   - `flashSquares`：红色一次性警告/将军闪烁
+- 维护统一的延迟动作流水线：
+  - `pendingAction`
+  - `isPendingActionDelayActive`
+  - `pendingActionTimerRef`
+
+该流水线现在覆盖四类按钮动作：
+
+- 重新开始
+- 作弊选项
+- 难度切换
+- `残局对抗`
+
+统一行为为：
+
+```text
+点击按钮
+→ 立即禁用相关按钮
+→ 取消后续电脑走棋请求
+→ 等待当前电脑落子完成
+→ 再等待 1 秒
+→ 应用目标动作
+→ 恢复正常调度
+```
+
+另外，`App.jsx` 还承担以下新增 UI 行为：
+
+- 顶部栏标题左侧显示应用 Logo，并复用于浏览器页签图标
+- 双方身份信息牌中间显示状态词：
+  - 当前轮到玩家时：`> 该你走棋了 <`
+  - 电脑思考时：`思考中。。。`
+  - 将死胜方：`获胜！`
+  - 和棋时双方：`和棋`
+- 玩家兵升变时显示手动选择条，顺序固定为“后、车、象、马”
+- 对局信息中的 Stockfish 深度只做展示偏移，显示值为 `实际深度 - 4`
 
 ### `src/components/`
 
@@ -48,6 +88,8 @@ React UI
 - `GameControls.jsx`：模式切换、执棋颜色、难度选择、重新开始
 - `GameInfo.jsx`：当前对局信息
 - `MoveHistory.jsx`：走棋记录列表
+- `OpeningActions.jsx`：执棋颜色与重新开始
+- `BoardSideStatus.jsx`：棋盘上下方身份牌、思考提示、获胜/和棋提示
 - `SoundSettings.jsx`：音效风格选择、音量调节、静音切换
 
 ## 通用工具层
@@ -62,6 +104,30 @@ React UI
 - 计算将军来源格子
 - 判断指定格子是否属于当前行棋方
 - 模拟非法拖拽后的棋盘状态，并检查是否暴露己方国王
+- 提供直接改写当前回合方盘面的作弊工具：
+  - `transformCurrentTurnPawnsToKnights()`
+  - `transformCurrentTurnNonKingPiecesToQueens()`
+
+这些作弊操作不依赖标准合法走法校验，而是直接重建局面。
+
+### `src/lib/endgameDrill.js`
+
+负责生成残局练习局面：
+
+- 从当前已接入的残局规则模板中随机挑选一种
+- 当前约束为“强方固定是我方，弱方固定是敌方，且由强方先走”
+- 只生成项目已具备轻量残局规则支持的局面族
+- 会过滤掉初始即将军或已结束的无效局面
+
+目前已接入的模板包括：
+
+- `K+Q vs K`
+- `K+R vs K`
+- `K+B+B vs K`
+- `K+B+N vs K`
+- `K+Q+额外子力 vs K`
+- `K+R+额外非兵子力 vs K`
+- 以及上述若干 `vs K+P` 版本
 
 ### `src/lib/gameStatus.js`
 
@@ -71,6 +137,10 @@ React UI
 - 和棋原因文案
 - 颜色标签
 - 走棋记录按回合分组
+- 对局结束音效类别：
+  - 我方胜利：`win`
+  - 我方失败：`lose`
+  - 和棋：`draw`
 
 ### `src/lib/workerUtils.js`
 
@@ -84,9 +154,15 @@ React UI
 使用 Web Audio API 程序化生成音效：
 
 - 三种风格：electronic（电子）、wooden（木质）、game（游戏）
-- 三种音效：move（落子）、check（将军）、checkmate（将死）
+- 多类音效：move（落子）、capture（吃子）、check（将军）、checkmate（失败/敌方获胜）、win（我方获胜/作弊）、draw（和棋）、invalid（非法拖拽警告）
 - 通过振荡器和增益节点实时合成声音
 - 无需外部音频文件
+
+近期调整：
+
+- 吃子音效去掉了额外的低沉叠加声，整体改为更积极、更轻快的单一反馈
+- 作弊按钮直接复用胜利音效
+- 胜利 / 失败 / 和棋已拆分为不同播放路径
 
 音效风格特点：
 
@@ -107,6 +183,8 @@ React UI
 - 根据难度决定走开局库、自定义 AI 或 Stockfish
 - 统一暴露 `isComputerThinking` 与取消逻辑
 - 处理 Stockfish 引擎失败时的降级逻辑（回退到自定义 AI）
+- 支持在 `pendingAction` 期间抑制新一轮电脑回合启动
+- 为按钮延迟动作提供“取消后续电脑走棋，但等待当前走棋自然结束”的调度基础
 
 这层的目标是让 `App.jsx` 不再直接管理 Worker 生命周期。
 
@@ -145,6 +223,17 @@ React UI
 - `pickBestMove()`
 - `chooseComputerMove()`
 
+新增职责：
+
+- `getBookOrForcedMove()` 负责统一处理非搜索类优先分支，当前优先级为：
+
+```text
+唯一合法手
+→ 开局库
+→ 自定义陷阱检测
+→ 常规搜索/Stockfish
+```
+
 ### `src/ai/config.js`
 
 集中维护 AI 常量和难度配置：
@@ -163,6 +252,12 @@ React UI
 - 当前局面的开局走法匹配
 - `getOpeningName()` 获取开局名称
 - `isInOpeningBook()` 判断局面是否在开局库中
+
+Stockfish 难度现在也可以按配置使用开局库：
+
+- `hard` 已接入 `useOpeningBook`
+- `master` 已接入 `useOpeningBook`
+- 大师难度在开局阶段允许少量随机分流，避免每盘都完全同谱
 
 ### `src/ai/trapBook.js`
 
@@ -231,6 +326,52 @@ React UI
 - LRU 淘汰策略
 - 节点数量限制（100000）
 
+Stockfish 相关难度的搜索深度策略已经扩展为动态深度：
+
+- `hard`：随双方总子力从 `8` 渐变到 `12`
+- `master`：随双方总子力从 `11` 渐变到 `17`
+- 前期采用更平缓的曲线，残局阶段再逐渐拉高深度
+
+注意：
+
+- UI 展示时，Stockfish 的“当前深度”会显示为 `实际深度 - 4`
+- 这是纯界面层修饰，不影响引擎真实搜索深度
+- 若命中以下基础必胜残局集合，则强方的 Stockfish 搜索深度直接提升到 `18`：
+  - `K+Q vs K`
+  - `K+R vs K`
+  - `K+B+B vs K`
+  - `K+B+N vs K`
+  - `K+Q+任意额外子力 vs K`
+  - `K+R+任意额外非兵子力 vs K`
+  - `K+2 个及以上轻子（至少含一象）vs K`
+  - `K+Q vs K+P`
+  - `K+R vs K+P`
+  - `K+Q+任意额外子力 vs K+P`
+  - `K+R+任意额外非兵子力 vs K+P`
+
+### `src/ai/endgameBook.js`
+
+负责轻量残局识别模块：
+
+- 在无需 7 子残局库文件的前提下，识别若干基础必胜残局家族
+- 支持弱方为：
+  - 单王
+  - 单王 + 单兵
+- 当前已接入的残局家族：
+  - `queen`
+  - `rook`
+  - `double-bishop`
+  - `bishop-knight`
+  - `minor-net`
+
+当前项目中的实际用途：
+
+- 为 `stockfishDepth.js` 提供残局家族识别结果
+- 命中这些基础必胜残局时，不直接替 Stockfish 出招
+- 而是把强方的 Stockfish 搜索深度直接提升到 `18`
+
+这层不是 Syzygy，也不是 Stockfish 内部逻辑修改，而是项目侧的轻量残局识别与策略补强。
+
 ## 数据流
 
 ### 人机模式
@@ -238,11 +379,24 @@ React UI
 ```text
 玩家拖拽落子
 → App.jsx 验证并更新棋局
+→ 若触发升变，则先弹出手动升变选择条
 → useComputerMove 检测轮到电脑
 → 选择开局库 / 陷阱检测 / 普通 AI / Stockfish
 → Worker 返回走法
 → App.jsx 应用电脑走法 + 播放音效
 → React 重新渲染棋盘和侧栏
+
+### 延迟动作模式
+
+```text
+用户点击重新开始 / 作弊 / 难度切换 / 残局对抗
+→ App.jsx 记录 pendingAction
+→ useComputerMove 停止派发新的电脑回合
+→ 若当前已有电脑回合在执行，则等待其完成
+→ 1 秒后应用目标动作
+→ 清理高亮、闪烁、挂起升变等临时状态
+→ 重新进入正常对局流
+```
 ```
 
 ### 双人模式
@@ -295,19 +449,29 @@ React UI
    - 使用 Web Audio API 实时合成音效，无需外部音频文件
    - 三种风格通过不同的波形类型和参数实现
 
-5. **中局陷阱检测**
+5. **统一延迟动作机制**
+   - 所有“会重置或重建局面 / AI 状态”的按钮都共享同一套等待机制
+   - 避免旧电脑请求在新局面上落子，降低竞态问题
+
+6. **中局陷阱检测**
    - 独立于开局库的中局战术检测模块
    - 检测常见战术模式并在适当时机使用
 
-6. **Stockfish 降级机制**
+7. **Stockfish 降级机制**
    - 当 Stockfish 引擎失败时，自动降级到自定义 AI
    - 保证游戏不会因引擎问题而中断
 
-7. **非法拖拽与规则层分离**
+8. **非法拖拽与规则层分离**
    - 合法走法仍完全依赖 `chess.js`
    - 非法拖拽警告不调用 `move()` 强行试走，而是通过 `remove()/put()` 做视觉模拟
    - 这样可以覆盖“被钉住棋子横移导致暴露国王”这类 `move()` 会直接拒绝的场景
 
-8. **警告高亮是一次性状态**
+9. **警告高亮是一次性状态**
    - `flashSquares` 同时服务于将军提示和非法拖拽警告
    - 每次新的拖拽或落子前先清理旧高亮与定时器，避免红色状态残留到下一次非法拖拽
+
+10. **残局识别与残局练习联动**
+   - `endgameBook.js` 提供残局家族识别能力
+   - `stockfishDepth.js` 在命中基础必胜残局时把强方深度直接提到 `18`
+   - `endgameDrill.js` 负责随机生成项目已支持的残局模板
+   - 顶部栏 `残局对抗` 直接复用统一延迟动作机制，便于快速进入练习局面

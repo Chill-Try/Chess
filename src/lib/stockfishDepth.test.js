@@ -68,6 +68,28 @@ test('hard 难度残局会提升到最大深度 12', () => {
   )
 })
 
+test('hard 难度命中 K+R vs K 时直接提到 18 层', () => {
+  assert.equal(
+    getDynamicStockfishDepth({
+      fen: 'k7/8/1K6/1R6/8/8/8/8 w - - 0 1',
+      difficultyKey: 'hard',
+      baseDepth: 8,
+    }),
+    18
+  )
+})
+
+test('hard 难度命中 K+Q vs K+P 时直接提到 18 层', () => {
+  assert.equal(
+    getDynamicStockfishDepth({
+      fen: '6k1/6p1/6Q1/8/8/8/8/6K1 w - - 0 1',
+      difficultyKey: 'hard',
+      baseDepth: 8,
+    }),
+    18
+  )
+})
+
 test('未配置动态曲线的难度保持原始深度', () => {
   assert.equal(
     getDynamicStockfishDepth({
@@ -175,5 +197,27 @@ test('master 难度残局会提升到最大深度 17', () => {
       baseDepth: 11,
     }),
     17
+  )
+})
+
+test('master 难度命中 K+B+N vs K 时直接提到 18 层', () => {
+  assert.equal(
+    getDynamicStockfishDepth({
+      fen: 'k7/8/1K6/8/8/8/2BN4/8 w - - 0 1',
+      difficultyKey: 'master',
+      baseDepth: 11,
+    }),
+    18
+  )
+})
+
+test('master 难度命中 K+Q+额外子力 vs K+P 时直接提到 18 层', () => {
+  assert.equal(
+    getDynamicStockfishDepth({
+      fen: '6k1/6p1/6Q1/8/8/8/8/5BK1 w - - 0 1',
+      difficultyKey: 'master',
+      baseDepth: 11,
+    }),
+    18
   )
 })

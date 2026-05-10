@@ -30,6 +30,7 @@ import MoveHistory from './components/MoveHistory'
 import OpeningActions from './components/OpeningActions'
 import SoundSettings from './components/SoundSettings'
 import { useComputerMove } from './hooks/useComputerMove'
+import { createRandomSupportedEndgameDrill } from './lib/endgameDrill'
 import {
   canInteractWithSquare,
   cloneGameWithHistory,
@@ -220,6 +221,9 @@ function App() {
    * 注意：Stockfish 难度显示的是 stockfishDepth，自定义 AI 显示配置的 depth
    */
   const currentSearchDepth = activeDifficultyKey ? getCurrentSearchDepth(fen, activeDifficultyKey) : 0
+  const displayedSearchDepth = usesStockfish
+    ? Math.max(0, currentSearchDepth - 4)
+    : currentSearchDepth
 
   /** 是否存在电脑角色，用于决定是否显示对局信息 */
   const hasComputerSide = mySideRole === 'computer' || opponentSideRole === 'computer'
@@ -364,6 +368,25 @@ function App() {
   const isResetPending = pendingAction?.type === 'reset'
   const isCheatPending = pendingAction?.type === 'cheat'
   const isDifficultyPending = pendingAction?.type === 'difficulty'
+  const isEndgameDrillPending = pendingAction?.type === 'endgameDrill'
+  const isDraw = game.isDraw()
+  const winningColor = game.isCheckmate() ? getOpponentColor(game.turn()) : null
+  const opponentStatusText = isDraw
+    ? '和棋'
+    : winningColor === opponentColor
+      ? '获胜！'
+      : game.turn() === opponentColor && opponentSideRole === 'player'
+        ? '> 该你走棋了 <'
+        : ''
+  const myStatusText = isDraw
+    ? '和棋'
+    : winningColor === playerColor
+      ? '获胜！'
+      : game.turn() === playerColor && mySideRole === 'player'
+        ? '> 该你走棋了 <'
+        : ''
+  const isOpponentHighlighted = isDraw || game.turn() === opponentColor || winningColor === opponentColor
+  const isMySideHighlighted = isDraw || game.turn() === playerColor || winningColor === playerColor
 
   // ==================== 副作用 ====================
 
@@ -432,6 +455,20 @@ function App() {
         } else {
           setOpponentComputerDifficultyKey(actionToApply.difficultyKey)
         }
+
+        return
+      }
+
+      if (actionToApply.type === 'endgameDrill') {
+        gameSessionRef.current += 1
+        setFlashSquares([])
+        window.clearTimeout(flashTimeoutRef.current)
+        prevIsCheckRef.current = false
+        prevIsGameOverRef.current = false
+        setHighlightedSquares({})
+        setPendingPromotion(null)
+        setGame(createRandomSupportedEndgameDrill())
+        setBoardResetCount(0)
       }
     }, 1000)
   }, [isComputerThinking, isPendingActionDelayActive, pendingAction])
@@ -609,6 +646,17 @@ function App() {
       type: 'difficulty',
       side,
       difficultyKey,
+    })
+  }
+
+  function handleEndgameDrill() {
+    if (pendingAction !== null) {
+      return
+    }
+
+    cancelPendingComputerMove()
+    setPendingAction({
+      type: 'endgameDrill',
     })
   }
 
@@ -941,6 +989,15 @@ function App() {
           </h1>
 
           <div className="topbar-menu-group">
+            <button
+              className="topbar-menu-trigger"
+              type="button"
+              disabled={pendingAction !== null}
+              onClick={handleEndgameDrill}
+            >
+              <span>{isEndgameDrillPending ? '等待生成...' : '残局对抗'}</span>
+            </button>
+
             <div className="topbar-menu">
               <button
                 className={`topbar-menu-trigger${isCheatMenuOpen ? ' open' : ''}`}
@@ -1083,9 +1140,9 @@ function App() {
             <BoardSideStatus
               label={getColorLabel(opponentColor)}
               detail={opponentBoardSideDetail}
-              isThinking={isCurrentSideThinking && game.turn() === opponentColor}
-              statusText={game.turn() === opponentColor && opponentSideRole === 'player' ? '> 该你走棋了 <' : ''}
-              isActive={game.turn() === opponentColor}
+              isThinking={isCurrentSideThinking && game.turn() === opponentColor && !isDraw && !winningColor}
+              statusText={opponentStatusText}
+              isActive={isOpponentHighlighted}
             />
 
             <div className="board-stage">
@@ -1139,9 +1196,9 @@ function App() {
             <BoardSideStatus
               label={getColorLabel(playerColor)}
               detail={myBoardSideDetail}
-              isThinking={isCurrentSideThinking && game.turn() === playerColor}
-              statusText={game.turn() === playerColor && mySideRole === 'player' ? '> 该你走棋了 <' : ''}
-              isActive={game.turn() === playerColor}
+              isThinking={isCurrentSideThinking && game.turn() === playerColor && !isDraw && !winningColor}
+              statusText={myStatusText}
+              isActive={isMySideHighlighted}
             />
           </div>
         </section>
@@ -1180,7 +1237,7 @@ function App() {
           mySideSummary={mySideSummary}
           opponentSideSummary={opponentSideSummary}
           turnLabel={getColorLabel(game.turn())}
-          currentSearchDepth={currentSearchDepth}
+          currentSearchDepth={displayedSearchDepth}
         />
 
           {/* 走棋记录区：按回合显示着法 */}

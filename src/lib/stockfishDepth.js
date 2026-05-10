@@ -1,3 +1,5 @@
+import { getSupportedEndgameProfileForFen } from '../ai/endgameBook.js'
+
 const STOCKFISH_DYNAMIC_DEPTH_BY_DIFFICULTY = {
   hard: {
     plateauMaterial: 6800,
@@ -12,6 +14,8 @@ const STOCKFISH_DYNAMIC_DEPTH_BY_DIFFICULTY = {
     rounding: 'round',
   },
 }
+
+const STOCKFISH_FORCED_ENDGAME_DEPTH = 18
 
 const PIECE_VALUES = {
   p: 100,
@@ -32,7 +36,31 @@ function getNonKingMaterialFromFenBoard(boardFen) {
   return total
 }
 
+function shouldForceStockfishEndgameDepth(fen, difficultyKey) {
+  if (difficultyKey !== 'hard' && difficultyKey !== 'master') {
+    return false
+  }
+
+  const profile = getSupportedEndgameProfileForFen(fen)
+
+  if (!profile) {
+    return false
+  }
+
+  return (
+    profile.family === 'queen'
+    || profile.family === 'rook'
+    || profile.family === 'double-bishop'
+    || profile.family === 'bishop-knight'
+    || profile.family === 'minor-net'
+  )
+}
+
 export function getDynamicStockfishDepth({ fen, difficultyKey, baseDepth }) {
+  if (shouldForceStockfishEndgameDepth(fen, difficultyKey)) {
+    return Math.max(baseDepth, STOCKFISH_FORCED_ENDGAME_DEPTH)
+  }
+
   const config = STOCKFISH_DYNAMIC_DEPTH_BY_DIFFICULTY[difficultyKey]
 
   if (!config) {
