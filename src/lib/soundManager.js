@@ -389,50 +389,54 @@ class SoundManager {
     const ctx = this.audioContext
     const now = startTime || ctx.currentTime
 
-    // 吃子音效参数：更低频、更大声、更长
+    // 吃子音效参数：更明确、更积极，但仍保留厚重冲击感
     const captureParams = {
-      baseFreq: params.baseFreq * 0.7,  // 更低频
-      noiseFreq: params.noiseFreq * 0.8,
-      noiseQ: 2,
-      noiseDuration: 0.08,  // 更长的冲击
-      duration: 0.25,  // 更长的余音
-      attackTime: 0.005,
-      peakGain: params.peakGain * 1.4,  // 更大声
+      baseFreq: params.baseFreq * 0.95,
+      accentFreq: params.baseFreq * 1.55,
+      noiseFreq: params.noiseFreq * 0.95,
+      noiseQ: 2.6,
+      noiseDuration: 0.055,
+      duration: 0.2,
+      attackTime: 0.004,
+      peakGain: params.peakGain * 1.15,
     }
 
-    // 创建更强的噪声冲击
+    // 创建带冲击感的起音
     const noiseBuffer = this.createNoiseBuffer(captureParams.noiseDuration)
     const noiseSource = ctx.createBufferSource()
     noiseSource.buffer = noiseBuffer
 
     const noiseFilter = ctx.createBiquadFilter()
-    noiseFilter.type = 'lowpass'  // 低通滤波，更有冲击感
-    noiseFilter.frequency.value = 600
+    noiseFilter.type = 'bandpass'
+    noiseFilter.frequency.value = captureParams.noiseFreq
+    noiseFilter.Q.value = captureParams.noiseQ
 
     const noiseGain = ctx.createGain()
-    noiseGain.gain.setValueAtTime(captureParams.peakGain * 0.8, now)
+    noiseGain.gain.setValueAtTime(captureParams.peakGain * 0.55, now)
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + captureParams.noiseDuration)
 
-    // 主振荡器 - 低频共鸣
+    // 主振荡器：不再下坠，而是轻微上扬，听感更积极
     const oscillator = ctx.createOscillator()
-    oscillator.type = 'sine'
+    oscillator.type = 'triangle'
     oscillator.frequency.setValueAtTime(captureParams.baseFreq, now)
-    oscillator.frequency.exponentialRampToValueAtTime(captureParams.baseFreq * 0.75, now + captureParams.duration)
+    oscillator.frequency.linearRampToValueAtTime(captureParams.baseFreq * 1.08, now + captureParams.duration * 0.45)
+    oscillator.frequency.exponentialRampToValueAtTime(captureParams.baseFreq * 1.02, now + captureParams.duration)
 
     const oscGain = ctx.createGain()
     oscGain.gain.setValueAtTime(0, now)
     oscGain.gain.linearRampToValueAtTime(captureParams.peakGain, now + captureParams.attackTime)
     oscGain.gain.exponentialRampToValueAtTime(0.001, now + captureParams.duration)
 
-    // 谐波振荡器
+    // 辅助高频：强化“得手”感，避免沉重下坠
     const oscillator2 = ctx.createOscillator()
-    oscillator2.type = 'triangle'
-    oscillator2.frequency.setValueAtTime(captureParams.baseFreq * 2, now)
+    oscillator2.type = 'sine'
+    oscillator2.frequency.setValueAtTime(captureParams.accentFreq, now)
+    oscillator2.frequency.linearRampToValueAtTime(captureParams.accentFreq * 1.12, now + captureParams.duration * 0.35)
 
     const oscGain2 = ctx.createGain()
     oscGain2.gain.setValueAtTime(0, now)
-    oscGain2.gain.linearRampToValueAtTime(captureParams.peakGain * 0.5, now + captureParams.attackTime)
-    oscGain2.gain.exponentialRampToValueAtTime(0.001, now + captureParams.duration * 0.6)
+    oscGain2.gain.linearRampToValueAtTime(captureParams.peakGain * 0.36, now + captureParams.attackTime)
+    oscGain2.gain.exponentialRampToValueAtTime(0.001, now + captureParams.duration * 0.52)
 
     // 连接节点
     noiseSource.connect(noiseFilter)

@@ -195,7 +195,7 @@ export const POSITION_TABLES = {
  * // 新手难度的配置
  * {
  *   key: 'beginner',
- *   label: '新手',
+ *   label: '呆瓜',
  *   depth: 2,              // 只搜索2层
  *   randomRange: 24,       // 较大的随机扰动
  *   usePositionalEval: false, // 不使用位置评估，更"弱"
@@ -206,7 +206,7 @@ export const DIFFICULTY_LEVELS = [
   // ========== 新手难度 ==========
   {
     key: 'beginner',
-    label: '新手',
+    label: '呆瓜',
     depth: 2,           // 浅层搜索
     randomRange: 24,    // 大随机扰动，导致更多"失误"
     usePositionalEval: false,  // 不使用精细位置评估
@@ -219,7 +219,7 @@ export const DIFFICULTY_LEVELS = [
   // ========== 中等难度 ==========
   {
     key: 'medium',
-    label: '中等',
+    label: '新手',
     depth: 3,           // 增加搜索深度
     randomRange: 8,     // 减小随机性
     usePositionalEval: true,
