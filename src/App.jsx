@@ -57,6 +57,18 @@ const ROLE_LABELS = {
   aiModel: 'AI 模型',
 }
 
+const PROMOTION_OPTIONS = ['q', 'r', 'b', 'n']
+const PROMOTION_PIECE_SYMBOLS = {
+  wq: '♕',
+  wr: '♖',
+  wb: '♗',
+  wn: '♘',
+  bq: '♛',
+  br: '♜',
+  bb: '♝',
+  bn: '♞',
+}
+
 /**
  * 主应用组件
  *
@@ -105,6 +117,9 @@ function App() {
 
   /** @type {string[]} 将军闪烁动画的格子列表 */
   const [flashSquares, setFlashSquares] = useState([])
+
+  /** 挂起中的玩家升变选择 */
+  const [pendingPromotion, setPendingPromotion] = useState(null)
 
   /**
    * 将军闪烁定时器引用
@@ -678,6 +693,52 @@ function App() {
     }))
   }
 
+  function isPromotionMove(sourceSquare, targetSquare) {
+    const movingPiece = game.get(sourceSquare)
+
+    if (movingPiece?.type !== 'p') {
+      return false
+    }
+
+    const targetRank = Number.parseInt(targetSquare?.[1] ?? '', 10)
+
+    if (Number.isNaN(targetRank)) {
+      return false
+    }
+
+    return (movingPiece.color === 'w' && targetRank === 8) || (movingPiece.color === 'b' && targetRank === 1)
+  }
+
+  function applyPlayerMove(sourceSquare, targetSquare, promotionPiece = undefined) {
+    const gameForMove = cloneGameWithHistory(game)
+
+    try {
+      const result = gameForMove.move({
+        from: sourceSquare,
+        to: targetSquare,
+        ...(promotionPiece ? { promotion: promotionPiece } : {}),
+      })
+
+      if (result) {
+        triggerCheckFlash(gameForMove)
+        setGame(gameForMove)
+
+        if (result.captured) {
+          playCaptureSound()
+        } else {
+          playMoveSound()
+        }
+
+        return true
+      }
+    } catch {
+      // 走子违反规则
+    }
+
+    setBoardResetCount((count) => count + 1)
+    return false
+  }
+
   /**
    * 处理棋子拖拽放下（走棋）
    *
@@ -696,6 +757,7 @@ function App() {
     setHighlightedSquares({})
     window.clearTimeout(flashTimeoutRef.current)
     setFlashSquares([])
+    setPendingPromotion(null)
 
     // 非可走棋状态直接拒绝
     if (!canMove) {
@@ -720,34 +782,20 @@ function App() {
     const isValidDrop = allLegalMoves.some((move) => move.to === targetSquare)
 
     if (isValidDrop) {
-      // 有效落点，走正常流程
-      const gameForMove = cloneGameWithHistory(game)
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        const movingPiece = game.get(sourceSquare)
 
-      try {
-        const result = gameForMove.move({
+        setPendingPromotion({
           from: sourceSquare,
           to: targetSquare,
-          promotion: 'q',
+          color: movingPiece.color,
         })
 
-        if (result) {
-          triggerCheckFlash(gameForMove)
-
-          // 走子成功，更新棋局状态并播放音效
-          setGame(gameForMove)
-          if (result.captured) {
-            playCaptureSound()
-          } else {
-            playMoveSound()
-          }
-          return true
-        }
-      } catch {
-        // 走子违反规则
+        return false
       }
 
-      setBoardResetCount((count) => count + 1)
-      return false
+      // 有效落点，走正常流程
+      return applyPlayerMove(sourceSquare, targetSquare)
     }
 
     // 非有效落点：按视觉模拟本次拖拽，检查是否会暴露己方国王
@@ -858,6 +906,30 @@ function App() {
   function handleMuteToggle() {
     const newMuted = soundManager.toggleMute()
     setSoundMuted(newMuted)
+  }
+
+  function handlePromotionSelect(promotionPiece) {
+    if (!pendingPromotion) {
+      return
+    }
+
+    const { from, to } = pendingPromotion
+    setPendingPromotion(null)
+    applyPlayerMove(from, to, promotionPiece)
+  }
+
+  function getPromotionPickerPosition() {
+    if (!pendingPromotion) {
+      return {}
+    }
+
+    const targetFile = pendingPromotion.to.charCodeAt(0) - 97
+    const columnIndex = playerColor === 'w' ? targetFile : 7 - targetFile
+    const leftPercent = (columnIndex + 0.5) * 12.5
+
+    return {
+      left: `calc(${leftPercent}% - 29px)`,
+    }
   }
 
   // ==================== 渲染 ====================
@@ -1019,30 +1091,53 @@ function App() {
               isActive={game.turn() === opponentColor}
             />
 
-            <Chessboard
-              // key 变化会强制重新挂载组件，用于消除拖拽残影
-              // 触发条件：玩家颜色变化 或 boardResetCount 变化
-              key={`${playerColor}-${boardResetCount}`}
-              options={{
-                id: 'simple-chess',
-                position: fen,  // 当前局面 FEN
-                onPieceDrop: (params) => handlePieceDrop(params.sourceSquare, params.targetSquare),
-                onPieceDrag: handlePieceDrag,
-                boardOrientation: playerColor === 'w' ? 'white' : 'black',  // 棋盘方向：白方视角或黑方视角
-                allowDragging: canMove,  // 禁止在电脑思考时拖拽
-                dragActivationDistance: 0,  // 按住即拿起，无需拖动距离
-                draggingPieceStyle: { transform: 'scale(1.4)' },  // 拖拽时棋子放大倍数
-                squareStyles,  // 格子样式（高亮、闪烁等）
-                boardStyle: {
-                  borderRadius: '18px',
-                  boxShadow: '0 24px 50px rgba(61, 41, 20, 0.4), inset 0 0 0 8px #a67c52',
-                },
-                darkSquareStyle: { backgroundColor: '#8ec5dc' },   // 浅蓝色深色格子
-                lightSquareStyle: { backgroundColor: '#d4eef6' },   // 极浅蓝色浅色格子
-                dropSquareStyle: { boxShadow: 'inset 0 0 1px 4px rgba(236, 201, 75, 0.85)' },  // 拖拽放置时目标格子样式
-                animationDurationInMs: 220,  // 棋子移动动画时长
-              }}
-            />
+            <div className="board-stage">
+              <Chessboard
+                // key 变化会强制重新挂载组件，用于消除拖拽残影
+                // 触发条件：玩家颜色变化 或 boardResetCount 变化
+                key={`${playerColor}-${boardResetCount}`}
+                options={{
+                  id: 'simple-chess',
+                  position: fen,  // 当前局面 FEN
+                  onPieceDrop: (params) => handlePieceDrop(params.sourceSquare, params.targetSquare),
+                  onPieceDrag: handlePieceDrag,
+                  boardOrientation: playerColor === 'w' ? 'white' : 'black',  // 棋盘方向：白方视角或黑方视角
+                  allowDragging: canMove,  // 禁止在电脑思考时拖拽
+                  dragActivationDistance: 0,  // 按住即拿起，无需拖动距离
+                  draggingPieceStyle: { transform: 'scale(1.4)' },  // 拖拽时棋子放大倍数
+                  squareStyles,  // 格子样式（高亮、闪烁等）
+                  boardStyle: {
+                    borderRadius: '18px',
+                    boxShadow: '0 24px 50px rgba(61, 41, 20, 0.4), inset 0 0 0 8px #a67c52',
+                  },
+                  darkSquareStyle: { backgroundColor: '#8ec5dc' },   // 浅蓝色深色格子
+                  lightSquareStyle: { backgroundColor: '#d4eef6' },   // 极浅蓝色浅色格子
+                  dropSquareStyle: { boxShadow: 'inset 0 0 1px 4px rgba(236, 201, 75, 0.85)' },  // 拖拽放置时目标格子样式
+                  animationDurationInMs: 220,  // 棋子移动动画时长
+                }}
+              />
+
+              {pendingPromotion ? (
+                <div
+                  className={`promotion-picker promotion-picker-${pendingPromotion.color === 'w' ? 'top' : 'bottom'}`}
+                  style={getPromotionPickerPosition()}
+                >
+                  {PROMOTION_OPTIONS.map((pieceType, index) => (
+                    <button
+                      key={pieceType}
+                      className="promotion-option"
+                      type="button"
+                      style={{ '--promotion-index': index }}
+                      onClick={() => handlePromotionSelect(pieceType)}
+                    >
+                      <span className="promotion-option-piece">
+                        {PROMOTION_PIECE_SYMBOLS[`${pendingPromotion.color}${pieceType}`]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
             <BoardSideStatus
               label={getColorLabel(playerColor)}
