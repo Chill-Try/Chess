@@ -265,7 +265,7 @@ export const DIFFICULTY_LEVELS = [
     label: '大师',
     depth: 4,
     engine: 'stockfish',
-    stockfishDepth: 16,  // 更深的 Stockfish 搜索
+    stockfishDepth: 11,  // 开局基础深度，残局动态提升到更深
     randomRange: 8,
     usePositionalEval: true,
     positionalWeight: 1,

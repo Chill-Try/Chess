@@ -62,6 +62,8 @@
  */
 
 import { DIFFICULTY_BY_KEY } from './ai/config'
+import { getDynamicStockfishDepth } from './lib/stockfishDepth'
+import { parseStockfishInfoLine, pickWeightedMove } from './lib/stockfishMultiPv'
 import stockfishEngineUrl from 'stockfish/bin/stockfish-18-asm.js?url'
 
 // ==================== Stockfish 配置 ====================
@@ -82,11 +84,14 @@ const STOCKFISH_CONFIG = {
 
   // ========== 大师难度 ==========
   master: {
-    depth: DIFFICULTY_BY_KEY.master.stockfishDepth, // 20层搜索
+    depth: DIFFICULTY_BY_KEY.master.stockfishDepth, // 17层搜索
     movetime: null,
     skillLevel: 20, // 最高技能
     limitStrength: false, // 不限制强度
     elo: null,
+    multiPv: 2,
+    randomWindowCp: 20,
+    randomnessScale: 10,
   },
 }
 
@@ -368,9 +373,31 @@ function ensureEngine() {
         return
       }
 
+      // ========== MultiPV 信息 ==========
+      if (line.startsWith('info ') && currentRequest?.config.multiPv > 1) {
+        const parsedInfo = parseStockfishInfoLine(line)
+
+        if (parsedInfo) {
+          currentRequest.variations.set(parsedInfo.multipv, parsedInfo)
+        }
+      }
+
       // ========== 最佳走法 ==========
       if (line.startsWith('bestmove') && currentRequest) {
-        const move = parseBestMove(line)
+        let move = parseBestMove(line)
+
+        if (currentRequest.config.multiPv > 1) {
+          const weightedMove = pickWeightedMove(
+            [...currentRequest.variations.values()],
+            currentRequest.config.randomWindowCp,
+            currentRequest.config.randomnessScale
+          )
+
+          if (weightedMove) {
+            move = weightedMove
+          }
+        }
+
         self.postMessage({ requestId: currentRequest.requestId, move })
         currentRequest = null
       }
@@ -402,11 +429,27 @@ function startSearch(request) {
     return
   }
 
-  currentRequest = { requestId, fen, difficultyKey }
+  const depth = getDynamicStockfishDepth({
+    fen,
+    difficultyKey,
+    baseDepth: config.depth,
+  })
+
+  currentRequest = {
+    requestId,
+    fen,
+    difficultyKey,
+    config: {
+      ...config,
+      depth,
+    },
+    variations: new Map(),
+  }
   console.info('[stockfishWorker] Start search', {
     requestId,
     difficultyKey,
     fen,
+    depth,
   })
 
   engine.postMessage('ucinewgame')
@@ -414,6 +457,8 @@ function startSearch(request) {
   if (typeof config.skillLevel === 'number') {
     engine.postMessage(`setoption name Skill Level value ${config.skillLevel}`)
   }
+
+  engine.postMessage(`setoption name MultiPV value ${config.multiPv ?? 1}`)
 
   engine.postMessage(`setoption name UCI_LimitStrength value ${config.limitStrength ? 'true' : 'false'}`)
 
@@ -428,7 +473,7 @@ function startSearch(request) {
     return
   }
 
-  engine.postMessage(`go depth ${config.depth}`)
+  engine.postMessage(`go depth ${depth}`)
 }
 
 // ==================== 主消息处理 ====================

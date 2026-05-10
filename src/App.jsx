@@ -636,10 +636,7 @@ function App() {
   function triggerCheckFlash(nextGame) {
     const checkedColor = nextGame.turn()
 
-    // 仅在真正被将军时触发（双人模式或轮到玩家时）
-    const checkedRole = checkedColor === playerColor ? mySideRole : opponentSideRole
-
-    if (!nextGame.isCheck() || checkedRole !== 'player') {
+    if (!nextGame.isCheck()) {
       return
     }
 

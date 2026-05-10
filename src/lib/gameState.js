@@ -232,9 +232,37 @@ function transformPiecesForCurrentTurn(game, shouldTransformPiece, nextPieceType
 }
 
 export function transformCurrentTurnPawnsToKnights(game) {
-  return transformPiecesForCurrentTurn(game, (piece) => piece.type === 'p', 'n')
+  return transformPiecesForCurrentTurn(
+    game,
+    (piece) => piece.type === 'p' || piece.type === 'q',
+    'n'
+  )
 }
 
 export function transformCurrentTurnNonKingPiecesToQueens(game) {
-  return transformPiecesForCurrentTurn(game, (piece) => piece.type !== 'k', 'q')
+  const currentTurnColor = game.turn()
+  const currentTurnPieces = game
+    .board()
+    .flat()
+    .filter((piece) => piece && piece.color === currentTurnColor)
+
+  const hasNonKingNonPawnPiece = currentTurnPieces.some(
+    (piece) => piece.type !== 'k' && piece.type !== 'p'
+  )
+
+  return transformPiecesForCurrentTurn(
+    game,
+    (piece) => {
+      if (piece.type === 'k') {
+        return false
+      }
+
+      if (hasNonKingNonPawnPiece) {
+        return piece.type !== 'p'
+      }
+
+      return piece.type === 'p'
+    },
+    'q'
+  )
 }

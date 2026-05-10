@@ -51,19 +51,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { getBookOrForcedMove, getCandidateMoves, pickBestMove } from '../chess-ai'
+import {
+  createComputerMoveRequestContext,
+} from '../lib/computerMoveRequest'
+import { shouldUseStockfishBookMove } from '../lib/computerMoveScheduling'
 import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
-
-const COMPUTER_MOVE_DELAY_JITTER_RATIO = 0.5
-
-function getRandomizedMoveDisplayMs(baseDelayMs) {
-  if (baseDelayMs <= 0) {
-    return 0
-  }
-
-  const jitterRangeMs = baseDelayMs * COMPUTER_MOVE_DELAY_JITTER_RATIO
-  const jitter = Math.round((Math.random() * 2 - 1) * jitterRangeMs)
-  return Math.max(0, baseDelayMs + jitter)
-}
 
 /**
  * 电脑走棋调度 Hook
@@ -226,6 +218,17 @@ export function useComputerMove({
       setIsComputerThinking(false)
       latestApplyComputerMoveRef.current(move, requestSessionId)
     }, remaining)
+  }
+
+  function initializeRequestContext() {
+    const context = createComputerMoveRequestContext({
+      minMoveDisplayMs: latestMinMoveDisplayMsRef.current,
+      gameSessionId: latestGameSessionIdRef.current,
+    })
+
+    requestStartedAtRef.current = context.startedAt
+    requestDisplayMsRef.current = context.displayMs
+    requestSessionIdRef.current = context.sessionId
   }
 
   // ========== 自定义 AI Worker 管理 ==========
@@ -412,9 +415,25 @@ export function useComputerMove({
       return undefined
     }
 
-    requestStartedAtRef.current = performance.now()
-    requestDisplayMsRef.current = getRandomizedMoveDisplayMs(latestMinMoveDisplayMsRef.current)
-    requestSessionIdRef.current = latestGameSessionIdRef.current
+    if (shouldUseStockfishBookMove({ difficultyKey, usesStockfish })) {
+      const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
+
+      if (forcedMove) {
+        initializeRequestContext()
+        pendingRequestRef.current += 1
+        const requestId = pendingRequestRef.current
+        applyMoveWithMinimumDelay(forcedMove, requestId)
+
+        return () => {
+          if (suppressNewTurnsRef.current) {
+            return
+          }
+          cancelPendingComputerMoveInternal({ updateThinkingState: false })
+        }
+      }
+    }
+
+    initializeRequestContext()
     console.info('[useComputerMove] Start computer turn', {
       computerColor,
       difficultyKey,
@@ -470,6 +489,7 @@ export function useComputerMove({
     const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
 
     if (forcedMove) {
+      initializeRequestContext()
       pendingRequestRef.current += 1
       const requestId = pendingRequestRef.current
       applyMoveWithMinimumDelay(forcedMove, requestId)

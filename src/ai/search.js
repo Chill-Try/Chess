@@ -64,6 +64,7 @@ import { DIFFICULTY_BY_KEY, PIECE_VALUES } from './config'
 import { getNonKingMaterial } from './boardUtils'
 import { evaluateBoard } from './evaluation'
 import { getGamePhase, isEarlyKingWalk, isEarlyQueenMove } from './moveScoringShared'
+import { getDynamicStockfishDepth } from '../lib/stockfishDepth'
 
 // ==================== 搜索限制常量 ====================
 
@@ -165,7 +166,11 @@ export function getCurrentSearchDepth(fen, difficultyKey) {
 
   // Stockfish 难度返回 engine 的深度
   if (difficulty.engine === 'stockfish') {
-    return difficulty.stockfishDepth ?? difficulty.depth
+    return getDynamicStockfishDepth({
+      fen,
+      difficultyKey,
+      baseDepth: difficulty.stockfishDepth ?? difficulty.depth,
+    })
   }
 
   // 自定义 AI 计算当前深度
