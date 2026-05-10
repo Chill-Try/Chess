@@ -18,7 +18,7 @@ const ROLE_OPTIONS = [
   { key: 'aiModel', label: 'AI 模型' },
 ]
 
-function DifficultySection({ title, difficultyLevels, activeKey, onChange }) {
+function DifficultySection({ title, difficultyLevels, activeKey, onChange, disabled = false }) {
   return (
     <div className="role-config-section">
       <h4>{title}</h4>
@@ -26,8 +26,9 @@ function DifficultySection({ title, difficultyLevels, activeKey, onChange }) {
         {difficultyLevels.map((level) => (
           <button
             key={level.key}
-            className={activeKey === level.key ? 'active' : ''}
+            className={`${activeKey === level.key ? 'active' : ''}${disabled ? ' difficulty-button-disabled' : ''}`}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(level.key)}
           >
             {level.label}
@@ -48,6 +49,7 @@ DifficultySection.propTypes = {
   ).isRequired,
   activeKey: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
+  disabled: PropTypes.bool,
 }
 
 function AiConfigSection({ title, config, onChange }) {
@@ -160,6 +162,7 @@ function RoleRow({
   difficultyLevels,
   computerDifficultyKey,
   aiConfig,
+  isDifficultyPending = false,
   onRoleChange,
   onComputerDifficultyChange,
   onAiConfigChange,
@@ -170,6 +173,7 @@ function RoleRow({
         title={`${title}难度`}
         difficultyLevels={difficultyLevels}
         activeKey={computerDifficultyKey}
+        disabled={isDifficultyPending}
         onChange={onComputerDifficultyChange}
       />
     ) : role === 'aiModel' ? (
@@ -194,6 +198,7 @@ RoleRow.propTypes = {
   difficultyLevels: DifficultySection.propTypes.difficultyLevels,
   computerDifficultyKey: PropTypes.string.isRequired,
   aiConfig: AiConfigSection.propTypes.config,
+  isDifficultyPending: PropTypes.bool,
   onRoleChange: PropTypes.func.isRequired,
   onComputerDifficultyChange: PropTypes.func.isRequired,
   onAiConfigChange: PropTypes.func.isRequired,
@@ -207,6 +212,7 @@ export default function GameControls({
   difficultyLevels,
   myAiConfig,
   opponentAiConfig,
+  isDifficultyPending = false,
   onMySideRoleChange,
   onOpponentSideRoleChange,
   onMyComputerDifficultyChange,
@@ -222,6 +228,7 @@ export default function GameControls({
         difficultyLevels={difficultyLevels}
         computerDifficultyKey={opponentComputerDifficultyKey}
         aiConfig={opponentAiConfig}
+        isDifficultyPending={isDifficultyPending}
         onRoleChange={onOpponentSideRoleChange}
         onComputerDifficultyChange={onOpponentComputerDifficultyChange}
         onAiConfigChange={onOpponentAiConfigChange}
@@ -233,6 +240,7 @@ export default function GameControls({
         difficultyLevels={difficultyLevels}
         computerDifficultyKey={myComputerDifficultyKey}
         aiConfig={myAiConfig}
+        isDifficultyPending={isDifficultyPending}
         onRoleChange={onMySideRoleChange}
         onComputerDifficultyChange={onMyComputerDifficultyChange}
         onAiConfigChange={onMyAiConfigChange}
@@ -249,6 +257,7 @@ GameControls.propTypes = {
   difficultyLevels: DifficultySection.propTypes.difficultyLevels,
   myAiConfig: AiConfigSection.propTypes.config,
   opponentAiConfig: AiConfigSection.propTypes.config,
+  isDifficultyPending: PropTypes.bool,
   onMySideRoleChange: PropTypes.func.isRequired,
   onOpponentSideRoleChange: PropTypes.func.isRequired,
   onMyComputerDifficultyChange: PropTypes.func.isRequired,

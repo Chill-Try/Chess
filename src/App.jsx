@@ -39,9 +39,9 @@ import {
   transformCurrentTurnNonKingPiecesToQueens,
   transformCurrentTurnPawnsToKnights,
 } from './lib/gameState'
-import { getColorLabel, getDrawNotice, getStatusText, groupMovesByTurn } from './lib/gameStatus'
+import { getColorLabel, getDrawNotice, getGameEndSound, getStatusText, groupMovesByTurn } from './lib/gameStatus'
 import { canManualMove, getComputerTurnConfig, getOpponentColor } from './lib/sideControl'
-import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playInvalidMoveSound } from './lib/soundManager'
+import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playDrawSound, playInvalidMoveSound, playWinSound } from './lib/soundManager'
 import './App.css'
 
 const DEFAULT_AI_CONFIG = {
@@ -348,6 +348,7 @@ function App() {
   const isCurrentSideThinking = isComputerThinking && (currentTurnRole === 'computer' || currentTurnRole === 'aiModel')
   const isResetPending = pendingAction?.type === 'reset'
   const isCheatPending = pendingAction?.type === 'cheat'
+  const isDifficultyPending = pendingAction?.type === 'difficulty'
 
   // ==================== 副作用 ====================
 
@@ -406,6 +407,16 @@ function App() {
         window.clearTimeout(flashTimeoutRef.current)
         setHighlightedSquares({})
         setGame((currentGame) => actionToApply.transformGame(currentGame))
+        playWinSound()
+        return
+      }
+
+      if (actionToApply.type === 'difficulty') {
+        if (actionToApply.side === 'my') {
+          setMyComputerDifficultyKey(actionToApply.difficultyKey)
+        } else {
+          setOpponentComputerDifficultyKey(actionToApply.difficultyKey)
+        }
       }
     }, 1000)
   }, [isComputerThinking, isPendingActionDelayActive, pendingAction])
@@ -414,9 +425,17 @@ function App() {
    * 检测将军和游戏结束状态变化，播放对应音效
    */
   useEffect(() => {
-    // 检测游戏结束（将死）
-    if (game.isCheckmate() && !prevIsGameOverRef.current) {
-      playCheckmateSound()
+    const gameEndSound = getGameEndSound(game, playerColor)
+
+    // 检测游戏结束
+    if (gameEndSound && !prevIsGameOverRef.current) {
+      if (gameEndSound === 'win') {
+        playWinSound()
+      } else if (gameEndSound === 'draw') {
+        playDrawSound()
+      } else {
+        playCheckmateSound()
+      }
       prevIsGameOverRef.current = true
     }
 
@@ -556,6 +575,25 @@ function App() {
     setPendingAction({
       type: 'cheat',
       transformGame,
+    })
+  }
+
+  function handleComputerDifficultyChange(side, difficultyKey) {
+    if (pendingAction !== null) {
+      return
+    }
+
+    const currentKey = side === 'my' ? myComputerDifficultyKey : opponentComputerDifficultyKey
+
+    if (currentKey === difficultyKey) {
+      return
+    }
+
+    cancelPendingComputerMove()
+    setPendingAction({
+      type: 'difficulty',
+      side,
+      difficultyKey,
     })
   }
 
@@ -1035,10 +1073,11 @@ function App() {
             difficultyLevels={DIFFICULTY_LEVELS}
             myAiConfig={myAiConfig}
             opponentAiConfig={opponentAiConfig}
+            isDifficultyPending={isDifficultyPending}
             onMySideRoleChange={setMySideRole}
             onOpponentSideRoleChange={setOpponentSideRole}
-            onMyComputerDifficultyChange={setMyComputerDifficultyKey}
-            onOpponentComputerDifficultyChange={setOpponentComputerDifficultyKey}
+            onMyComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('my', difficultyKey)}
+            onOpponentComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('opponent', difficultyKey)}
             onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
             onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
           />

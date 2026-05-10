@@ -45,6 +45,8 @@ export const SoundType = {
   CAPTURE: 'capture',      // 吃子音
   CHECK: 'check',
   CHECKMATE: 'checkmate', // 将死音
+  WIN: 'win',             // 胜利音
+  DRAW: 'draw',           // 和棋音
   INVALID_MOVE: 'invalid_move',  // 非法走子警告音
 }
 
@@ -202,6 +204,20 @@ class SoundManager {
   }
 
   /**
+   * 播放胜利音效
+   */
+  playWinSound() {
+    this.play(SoundType.WIN)
+  }
+
+  /**
+   * 播放和棋音效
+   */
+  playDrawSound() {
+    this.play(SoundType.DRAW)
+  }
+
+  /**
    * 播放非法走子警告音
    */
   playInvalidMoveSound() {
@@ -269,6 +285,12 @@ class SoundManager {
         break
       case SoundType.CHECKMATE:
         this.generateCheckmateSound(now)
+        break
+      case SoundType.WIN:
+        this.generateWinSound(now)
+        break
+      case SoundType.DRAW:
+        this.generateDrawSound(now)
         break
       case SoundType.INVALID_MOVE:
         this.generateInvalidMoveSound(now)
@@ -508,6 +530,74 @@ class SoundManager {
 
       oscillator.start(time)
       oscillator.stop(time + 0.5)
+
+      oscillator.onended = () => {
+        oscillator.disconnect()
+        gain.disconnect()
+      }
+    })
+  }
+
+  /**
+   * 生成胜利音效
+   */
+  generateWinSound(startTime) {
+    const ctx = this.audioContext
+    const now = startTime || ctx.currentTime
+    const notes = [392, 523, 659, 784]
+
+    notes.forEach((freq, i) => {
+      const oscillator = ctx.createOscillator()
+      oscillator.type = 'triangle'
+      oscillator.frequency.value = freq
+
+      const gain = ctx.createGain()
+      const time = now + i * 0.11
+
+      gain.gain.setValueAtTime(0, time)
+      gain.gain.linearRampToValueAtTime(0.22, time + 0.015)
+      gain.gain.setValueAtTime(0.22, time + 0.08)
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.32)
+
+      oscillator.connect(gain)
+      gain.connect(this.masterGain)
+
+      oscillator.start(time)
+      oscillator.stop(time + 0.36)
+
+      oscillator.onended = () => {
+        oscillator.disconnect()
+        gain.disconnect()
+      }
+    })
+  }
+
+  /**
+   * 生成和棋音效
+   */
+  generateDrawSound(startTime) {
+    const ctx = this.audioContext
+    const now = startTime || ctx.currentTime
+    const notes = [440, 392, 440]
+
+    notes.forEach((freq, i) => {
+      const oscillator = ctx.createOscillator()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = freq
+
+      const gain = ctx.createGain()
+      const time = now + i * 0.14
+
+      gain.gain.setValueAtTime(0, time)
+      gain.gain.linearRampToValueAtTime(0.16, time + 0.02)
+      gain.gain.setValueAtTime(0.16, time + 0.09)
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.34)
+
+      oscillator.connect(gain)
+      gain.connect(this.masterGain)
+
+      oscillator.start(time)
+      oscillator.stop(time + 0.38)
 
       oscillator.onended = () => {
         oscillator.disconnect()
@@ -758,6 +848,20 @@ export function playCheckSound() {
  */
 export function playCheckmateSound() {
   soundManager.playCheckmateSound()
+}
+
+/**
+ * 播放胜利音效
+ */
+export function playWinSound() {
+  soundManager.playWinSound()
+}
+
+/**
+ * 播放和棋音效
+ */
+export function playDrawSound() {
+  soundManager.playDrawSound()
 }
 
 /**

@@ -135,6 +135,26 @@ export function getDrawNotice(game) {
 }
 
 /**
+ * 获取对局结束时应播放的音效类型。
+ *
+ * @param {Chess} game - 棋局实例
+ * @param {string} playerColor - 我方执棋颜色
+ * @returns {'win'|'checkmate'|'draw'|null}
+ */
+export function getGameEndSound(game, playerColor) {
+  if (game.isCheckmate()) {
+    const winnerColor = game.turn() === 'w' ? 'b' : 'w'
+    return winnerColor === playerColor ? 'win' : 'checkmate'
+  }
+
+  if (game.isDraw()) {
+    return 'draw'
+  }
+
+  return null
+}
+
+/**
  * 将走棋历史按回合分组
  *
  * @param {string[]} moveHistory - 扁平的历史数组 ['e4', 'e5', 'Nf3', ...]
