@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types'
 
-export default function OpeningActions({ playerColor, onColorChange, onReset }) {
+export default function OpeningActions({ playerColor, onColorChange, onReset, isGameOver, isResetPending }) {
   return (
     <section className="card opening-actions-card">
       <h2>开局操作</h2>
@@ -23,8 +23,13 @@ export default function OpeningActions({ playerColor, onColorChange, onReset }) 
         </button>
       </div>
 
-      <button className="primary-button" type="button" onClick={onReset}>
-        重新开始
+      <button
+        className={`primary-button${isGameOver ? ' breathing' : ''}${isResetPending ? ' disabled' : ''}`}
+        type="button"
+        onClick={onReset}
+        disabled={isResetPending}
+      >
+        {isResetPending ? '等待重开...' : '重新开始'}
       </button>
     </section>
   )
@@ -34,4 +39,11 @@ OpeningActions.propTypes = {
   playerColor: PropTypes.oneOf(['w', 'b']).isRequired,
   onColorChange: PropTypes.func.isRequired,
   onReset: PropTypes.func.isRequired,
+  isGameOver: PropTypes.bool,
+  isResetPending: PropTypes.bool,
+}
+
+OpeningActions.defaultProps = {
+  isGameOver: false,
+  isResetPending: false,
 }

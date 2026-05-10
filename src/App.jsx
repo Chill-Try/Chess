@@ -115,11 +115,35 @@ function App() {
   /** @type {boolean} 是否静音 */
   const [soundMuted, setSoundMuted] = useState(() => soundManager.isMuted())
 
+  /** @type {boolean} 顶部菜单是否展开 */
+  const [isCheatMenuOpen, setIsCheatMenuOpen] = useState(false)
+
+  /** @type {boolean} 电脑速度菜单是否展开 */
+  const [isSpeedMenuOpen, setIsSpeedMenuOpen] = useState(false)
+
+  /** @type {number} 电脑最短出招展示时长（毫秒） */
+  const [computerMoveDelayMs, setComputerMoveDelayMs] = useState(800)
+
   /** 上一次将军状态，用于检测变化 */
   const prevIsCheckRef = useRef(false)
 
   /** 上一次游戏结束状态，用于检测变化 */
   const prevIsGameOverRef = useRef(false)
+
+  /** 当前对局代际。重新开始时递增，用于屏蔽旧对局的异步走棋回调。 */
+  const gameSessionRef = useRef(0)
+
+  /** AI 运行时代际。重新开始时递增，用于强制重建整套 AI worker。 */
+  const [aiRuntimeKey, setAiRuntimeKey] = useState(0)
+
+  /** 是否处于延迟重开等待中 */
+  const [pendingResetColor, setPendingResetColor] = useState(null)
+
+  /** 是否已开始 1 秒重开倒计时 */
+  const [isResetDelayActive, setIsResetDelayActive] = useState(false)
+
+  /** 延迟重开定时器 */
+  const resetTimerRef = useRef(null)
 
   // ==================== 派生状态（基于 game 计算）====================
 
@@ -186,9 +210,6 @@ function App() {
   const myBoardSideDetail = getBoardSideDetail(mySideRole, myComputerDifficultyKey, myAiConfig)
   const opponentBoardSideDetail = getBoardSideDetail(opponentSideRole, opponentComputerDifficultyKey, opponentAiConfig)
 
-  /** 信息卡显示的当前回合电脑难度 */
-  const primaryDifficultyLabel = difficulty?.label ?? '无'
-
   /**
    * 玩家是否可以走棋
    * 条件：
@@ -240,13 +261,30 @@ function App() {
    * 6. 根据是否吃子播放不同音效
    */
   const applyComputerMove = useCallback(
-    (move) => {
+    (move, sessionId) => {
       setGame((currentGame) => {
+        if (sessionId !== gameSessionRef.current) {
+          return currentGame
+        }
+
         // 克隆棋局以保留历史
         const nextGame = cloneGameWithHistory(currentGame)
 
-        // 应用走法并获取详细结果（包含 captured 字段）
-        const moveResult = nextGame.move(move)
+        let moveResult = null
+
+        try {
+          // 应用走法并获取详细结果（包含 captured 字段）
+          moveResult = nextGame.move(move)
+        } catch (error) {
+          console.warn('[App] Ignored stale computer move, rebuilding AI runtime', {
+            move,
+            sessionId,
+            currentSessionId: gameSessionRef.current,
+            error,
+          })
+          setAiRuntimeKey((current) => current + 1)
+          return currentGame
+        }
 
         if (!moveResult) {
           return currentGame
@@ -286,10 +324,19 @@ function App() {
     computerColor: activeComputerTurn?.computerColor ?? null,
     difficultyKey: activeComputerTurn?.difficultyKey ?? null,
     usesStockfish,
+    minMoveDisplayMs: computerMoveDelayMs,
+    gameSessionId: gameSessionRef.current,
+    runtimeKey: aiRuntimeKey,
+    suppressNewTurns: pendingResetColor !== null,
+    onEngineCrash: () => {
+      console.warn('[App] Stockfish worker crashed, rebuilding AI runtime')
+      setAiRuntimeKey((current) => current + 1)
+    },
     applyComputerMove,
   })
 
   const isCurrentSideThinking = isComputerThinking && (currentTurnRole === 'computer' || currentTurnRole === 'aiModel')
+  const isResetPending = pendingResetColor !== null
 
   // ==================== 副作用 ====================
 
@@ -311,9 +358,31 @@ function App() {
   useEffect(
     () => () => {
       window.clearTimeout(flashTimeoutRef.current)
+      window.clearTimeout(resetTimerRef.current)
     },
     []
   )
+
+  useEffect(() => {
+    if (pendingResetColor === null || isResetDelayActive || isComputerThinking || resetTimerRef.current !== null) {
+      return
+    }
+
+    console.info('[App] Current move settled, start delayed reset countdown', {
+      pendingResetColor,
+      delayMs: 1000,
+    })
+
+    setIsResetDelayActive(true)
+    window.clearTimeout(resetTimerRef.current)
+    resetTimerRef.current = window.setTimeout(() => {
+      resetTimerRef.current = null
+      setIsResetDelayActive(false)
+      const nextPlayerColor = pendingResetColor
+      setPendingResetColor(null)
+      resetGame(nextPlayerColor)
+    }, 1000)
+  }, [isComputerThinking, isResetDelayActive, pendingResetColor])
 
   /**
    * 检测将军和游戏结束状态变化，播放对应音效
@@ -417,6 +486,11 @@ function App() {
    * 7. 清空高亮
    */
   function resetGame(nextPlayerColor = playerColor) {
+    gameSessionRef.current += 1
+    console.info('[App] Resetting game', {
+      nextPlayerColor,
+      nextSessionId: gameSessionRef.current,
+    })
     cancelPendingComputerMove()
     setFlashSquares([])
     window.clearTimeout(flashTimeoutRef.current)
@@ -429,13 +503,25 @@ function App() {
     setHighlightedSquares({})
   }
 
+  function scheduleResetGame(nextPlayerColor = playerColor) {
+    if (pendingResetColor !== null) {
+      return
+    }
+
+    console.info('[App] Schedule reset game after current move settles', {
+      nextPlayerColor,
+    })
+
+    setPendingResetColor(nextPlayerColor)
+  }
+
   /**
    * 处理玩家切换执棋颜色
    *
    * @param {string} nextColor - 新的执棋颜色 ('w' 或 'b')
    */
   function handleColorChange(nextColor) {
-    resetGame(nextColor)
+    scheduleResetGame(nextColor)
   }
 
   /**
@@ -695,107 +781,240 @@ function App() {
   // ==================== 渲染 ====================
 
   return (
-    <main className="app-shell">
-      {/* 左侧：棋盘区域 */}
-      <section className="board-panel">
-        {/* 顶部状态区：标题、状态文案、思考提示、和棋提示 */}
-        <GameHeader
-          statusText={statusText}
-          drawNotice={drawNotice}
-        />
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <h1 className="topbar-title">国际象棋</h1>
 
-        {/* 棋盘容器 */}
-        <div className="board-wrap" ref={boardWrapRef}>
-          <BoardSideStatus
-            label={getColorLabel(opponentColor)}
-            detail={opponentBoardSideDetail}
-            isThinking={isCurrentSideThinking && game.turn() === opponentColor}
-            isActive={game.turn() === opponentColor}
-          />
+          <div className="topbar-menu-group">
+            <div className="topbar-menu">
+              <button
+                className={`topbar-menu-trigger${isCheatMenuOpen ? ' open' : ''}`}
+                type="button"
+                onClick={() => {
+                  setIsCheatMenuOpen((current) => !current)
+                  setIsSpeedMenuOpen(false)
+                }}
+              >
+                <span>作弊选项</span>
+                <span className="topbar-menu-arrow">▾</span>
+              </button>
 
-          <Chessboard
-            // key 变化会强制重新挂载组件，用于消除拖拽残影
-            // 触发条件：玩家颜色变化 或 boardResetCount 变化
-            key={`${playerColor}-${boardResetCount}`}
-            options={{
-              id: 'simple-chess',
-              position: fen,  // 当前局面 FEN
-              onPieceDrop: (params) => handlePieceDrop(params.sourceSquare, params.targetSquare),
-              onPieceDrag: handlePieceDrag,
-              boardOrientation: playerColor === 'w' ? 'white' : 'black',  // 棋盘方向：白方视角或黑方视角
-              allowDragging: canMove,  // 禁止在电脑思考时拖拽
-              dragActivationDistance: 0,  // 按住即拿起，无需拖动距离
-              draggingPieceStyle: { transform: 'scale(1.4)' },  // 拖拽时棋子放大倍数
-              squareStyles,  // 格子样式（高亮、闪烁等）
-              boardStyle: {
-                borderRadius: '18px',
-                boxShadow: '0 24px 50px rgba(61, 41, 20, 0.4), inset 0 0 0 8px #a67c52',
-              },
-              darkSquareStyle: { backgroundColor: '#8ec5dc' },   // 浅蓝色深色格子
-              lightSquareStyle: { backgroundColor: '#d4eef6' },   // 极浅蓝色浅色格子
-              dropSquareStyle: { boxShadow: 'inset 0 0 1px 4px rgba(236, 201, 75, 0.85)' },  // 拖拽放置时目标格子样式
-              animationDurationInMs: 220,  // 棋子移动动画时长
-            }}
-          />
+              {isCheatMenuOpen ? (
+                <div className="topbar-menu-panel">
+                  <button
+                    className="topbar-menu-item"
+                    type="button"
+                    onClick={() => {
+                      setIsCheatMenuOpen(false)
+                    }}
+                  >
+                    给马化腾充 Q 币
+                  </button>
 
-          <BoardSideStatus
-            label={getColorLabel(playerColor)}
-            detail={myBoardSideDetail}
-            isThinking={isCurrentSideThinking && game.turn() === playerColor}
-            isActive={game.turn() === playerColor}
-          />
+                  <button
+                    className="topbar-menu-item"
+                    type="button"
+                    onClick={() => {
+                      setIsCheatMenuOpen(false)
+                    }}
+                  >
+                    请陈帅吃肯德基
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="topbar-menu">
+              <button
+                className={`topbar-menu-trigger${isSpeedMenuOpen ? ' open' : ''}`}
+                type="button"
+                onClick={() => {
+                  setIsSpeedMenuOpen((current) => !current)
+                  setIsCheatMenuOpen(false)
+                }}
+              >
+                <span>{getComputerSpeedLabel(computerMoveDelayMs)}</span>
+                <span className="topbar-menu-arrow">▾</span>
+              </button>
+
+              {isSpeedMenuOpen ? (
+                <div className="topbar-menu-panel">
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 0 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(0)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    无延迟
+                  </button>
+
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 200 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(200)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    200 ms
+                  </button>
+
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 400 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(400)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    400 ms
+                  </button>
+
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 800 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(800)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    800 ms
+                  </button>
+
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 1600 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(1600)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    1600 ms
+                  </button>
+
+                  <button
+                    className={`topbar-menu-item${computerMoveDelayMs === 3200 ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setComputerMoveDelayMs(3200)
+                      setIsSpeedMenuOpen(false)
+                    }}
+                  >
+                    3200 ms
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
-      </section>
+      </header>
 
-      {/* 右侧：控制面板 */}
-      <aside className="sidebar">
-        <OpeningActions
-          playerColor={playerColor}
-          onColorChange={handleColorChange}
-          onReset={() => resetGame()}
-        />
+      <main className="app-shell">
+        {/* 左侧：棋盘区域 */}
+        <section className="board-panel">
+          {/* 顶部状态区：状态文案、和棋提示 */}
+          <GameHeader
+            statusText={statusText}
+            drawNotice={drawNotice}
+          />
 
-        {/* 游戏控制区：模式切换、难度选择 */}
-        <GameControls
-          mySideRole={mySideRole}
-          opponentSideRole={opponentSideRole}
-          myComputerDifficultyKey={myComputerDifficultyKey}
-          opponentComputerDifficultyKey={opponentComputerDifficultyKey}
-          difficultyLevels={DIFFICULTY_LEVELS}
-          myAiConfig={myAiConfig}
-          opponentAiConfig={opponentAiConfig}
-          onMySideRoleChange={setMySideRole}
-          onOpponentSideRoleChange={setOpponentSideRole}
-          onMyComputerDifficultyChange={setMyComputerDifficultyKey}
-          onOpponentComputerDifficultyChange={setOpponentComputerDifficultyKey}
-          onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
-          onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
-        />
+          {/* 棋盘容器 */}
+          <div className="board-wrap" ref={boardWrapRef}>
+            <BoardSideStatus
+              label={getColorLabel(opponentColor)}
+              detail={opponentBoardSideDetail}
+              isThinking={isCurrentSideThinking && game.turn() === opponentColor}
+              isActive={game.turn() === opponentColor}
+            />
 
-        {/* 对局信息区：显示玩家/电脑颜色、当前行棋方、难度、搜索深度 */}
-        <GameInfo
+            <Chessboard
+              // key 变化会强制重新挂载组件，用于消除拖拽残影
+              // 触发条件：玩家颜色变化 或 boardResetCount 变化
+              key={`${playerColor}-${boardResetCount}`}
+              options={{
+                id: 'simple-chess',
+                position: fen,  // 当前局面 FEN
+                onPieceDrop: (params) => handlePieceDrop(params.sourceSquare, params.targetSquare),
+                onPieceDrag: handlePieceDrag,
+                boardOrientation: playerColor === 'w' ? 'white' : 'black',  // 棋盘方向：白方视角或黑方视角
+                allowDragging: canMove,  // 禁止在电脑思考时拖拽
+                dragActivationDistance: 0,  // 按住即拿起，无需拖动距离
+                draggingPieceStyle: { transform: 'scale(1.4)' },  // 拖拽时棋子放大倍数
+                squareStyles,  // 格子样式（高亮、闪烁等）
+                boardStyle: {
+                  borderRadius: '18px',
+                  boxShadow: '0 24px 50px rgba(61, 41, 20, 0.4), inset 0 0 0 8px #a67c52',
+                },
+                darkSquareStyle: { backgroundColor: '#8ec5dc' },   // 浅蓝色深色格子
+                lightSquareStyle: { backgroundColor: '#d4eef6' },   // 极浅蓝色浅色格子
+                dropSquareStyle: { boxShadow: 'inset 0 0 1px 4px rgba(236, 201, 75, 0.85)' },  // 拖拽放置时目标格子样式
+                animationDurationInMs: 220,  // 棋子移动动画时长
+              }}
+            />
+
+            <BoardSideStatus
+              label={getColorLabel(playerColor)}
+              detail={myBoardSideDetail}
+              isThinking={isCurrentSideThinking && game.turn() === playerColor}
+              isActive={game.turn() === playerColor}
+            />
+          </div>
+        </section>
+
+        {/* 右侧：控制面板 */}
+        <aside className="sidebar">
+          <OpeningActions
+            playerColor={playerColor}
+            onColorChange={handleColorChange}
+            onReset={() => scheduleResetGame()}
+            isGameOver={game.isGameOver()}
+            isResetPending={isResetPending}
+          />
+
+          {/* 游戏控制区：模式切换、难度选择 */}
+          <GameControls
+            mySideRole={mySideRole}
+            opponentSideRole={opponentSideRole}
+            myComputerDifficultyKey={myComputerDifficultyKey}
+            opponentComputerDifficultyKey={opponentComputerDifficultyKey}
+            difficultyLevels={DIFFICULTY_LEVELS}
+            myAiConfig={myAiConfig}
+            opponentAiConfig={opponentAiConfig}
+            onMySideRoleChange={setMySideRole}
+            onOpponentSideRoleChange={setOpponentSideRole}
+            onMyComputerDifficultyChange={setMyComputerDifficultyKey}
+            onOpponentComputerDifficultyChange={setOpponentComputerDifficultyKey}
+            onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
+            onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
+          />
+
+          {/* 对局信息区：显示玩家/电脑颜色、当前行棋方、难度、搜索深度 */}
+          <GameInfo
           hasComputerSide={hasComputerSide}
           mySideSummary={mySideSummary}
           opponentSideSummary={opponentSideSummary}
           turnLabel={getColorLabel(game.turn())}
-          difficultyLabel={primaryDifficultyLabel}
           currentSearchDepth={currentSearchDepth}
         />
 
-        {/* 走棋记录区：按回合显示着法 */}
-        <MoveHistory turns={groupedMoveHistory} />
+          {/* 走棋记录区：按回合显示着法 */}
+          <MoveHistory turns={groupedMoveHistory} />
 
-        {/* 音效设置区 */}
-        <SoundSettings
-          style={soundStyle}
-          volume={soundVolume}
-          muted={soundMuted}
-          onStyleChange={handleSoundStyleChange}
-          onVolumeChange={handleVolumeChange}
-          onMuteToggle={handleMuteToggle}
-        />
-      </aside>
-    </main>
+          {/* 音效设置区 */}
+          <SoundSettings
+            style={soundStyle}
+            volume={soundVolume}
+            muted={soundMuted}
+            onStyleChange={handleSoundStyleChange}
+            onVolumeChange={handleVolumeChange}
+            onMuteToggle={handleMuteToggle}
+          />
+        </aside>
+      </main>
+    </>
   )
 }
 
@@ -809,6 +1028,14 @@ function getBoardSideDetail(role, computerDifficultyKey, aiConfig) {
   }
 
   return '玩家'
+}
+
+function getComputerSpeedLabel(delayMs) {
+  if (delayMs === 0) {
+    return '电脑速度 - 无延迟'
+  }
+
+  return `电脑速度 - ${delayMs} ms`
 }
 
 export default App

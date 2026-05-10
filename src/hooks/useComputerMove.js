@@ -53,6 +53,18 @@ import { useEffect, useRef, useState } from 'react'
 import { getBookOrForcedMove, getCandidateMoves, pickBestMove } from '../chess-ai'
 import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
 
+const COMPUTER_MOVE_DELAY_JITTER_RATIO = 0.5
+
+function getRandomizedMoveDisplayMs(baseDelayMs) {
+  if (baseDelayMs <= 0) {
+    return 0
+  }
+
+  const jitterRangeMs = baseDelayMs * COMPUTER_MOVE_DELAY_JITTER_RATIO
+  const jitter = Math.round((Math.random() * 2 - 1) * jitterRangeMs)
+  return Math.max(0, baseDelayMs + jitter)
+}
+
 /**
  * 电脑走棋调度 Hook
  *
@@ -73,12 +85,20 @@ export function useComputerMove({
   computerColor,
   difficultyKey,
   usesStockfish,
+  minMoveDisplayMs = 800,
+  gameSessionId,
+  runtimeKey,
+  suppressNewTurns = false,
+  onEngineCrash,
   applyComputerMove,
 }) {
   // ========== 状态 ==========
 
   /** 电脑是否正在计算走法 */
   const [isComputerThinking, setIsComputerThinking] = useState(false)
+
+  /** 思考状态引用，避免重复 setState */
+  const isComputerThinkingRef = useRef(false)
 
   // ========== Refs（避免闭包问题）==========
 
@@ -100,6 +120,48 @@ export function useComputerMove({
    */
   const activeSearchRef = useRef(null)
 
+  /** 当前请求开始时间，用于控制最短展示时长 */
+  const requestStartedAtRef = useRef(0)
+
+  /** 延迟应用走法的定时器 */
+  const applyMoveTimerRef = useRef(null)
+
+  /** 最新棋局引用，避免 Worker 回调使用过期闭包 */
+  const latestGameRef = useRef(game)
+
+  /** 最新电脑颜色引用 */
+  const latestComputerColorRef = useRef(computerColor)
+
+  /** 最新难度引用 */
+  const latestDifficultyKeyRef = useRef(difficultyKey)
+
+  /** 最新最短展示时长引用 */
+  const latestMinMoveDisplayMsRef = useRef(minMoveDisplayMs)
+
+  /** 最新应用走法回调引用 */
+  const latestApplyComputerMoveRef = useRef(applyComputerMove)
+
+  /** 当前请求锁定的展示时长 */
+  const requestDisplayMsRef = useRef(0)
+
+  /** 最新对局代际 */
+  const latestGameSessionIdRef = useRef(gameSessionId)
+
+  /** 当前请求所属的对局代际 */
+  const requestSessionIdRef = useRef(gameSessionId)
+
+  /** 最新是否抑制新回合 */
+  const suppressNewTurnsRef = useRef(suppressNewTurns)
+
+  latestGameRef.current = game
+  latestComputerColorRef.current = computerColor
+  latestDifficultyKeyRef.current = difficultyKey
+  latestMinMoveDisplayMsRef.current = minMoveDisplayMs
+  latestApplyComputerMoveRef.current = applyComputerMove
+  latestGameSessionIdRef.current = gameSessionId
+  suppressNewTurnsRef.current = suppressNewTurns
+  isComputerThinkingRef.current = isComputerThinking
+
   // ========== 取消待处理请求 ==========
 
   /**
@@ -111,11 +173,59 @@ export function useComputerMove({
    * 3. 通知 Stockfish Worker 停止
    * 4. 更新思考状态
    */
-  function cancelPendingComputerMove() {
+  function cancelPendingComputerMoveInternal({ updateThinkingState }) {
+    console.info('[useComputerMove] Cancel pending computer move', {
+      updateThinkingState,
+      pendingRequestId: pendingRequestRef.current,
+      gameSessionId: latestGameSessionIdRef.current,
+    })
     pendingRequestRef.current += 1
     activeSearchRef.current = null
+    requestStartedAtRef.current = 0
+    requestDisplayMsRef.current = 0
+    window.clearTimeout(applyMoveTimerRef.current)
+    applyMoveTimerRef.current = null
     stockfishWorkerRef.current?.postMessage({ cancel: true })
-    setIsComputerThinking(false)
+
+    if (updateThinkingState && isComputerThinkingRef.current) {
+      setIsComputerThinking(false)
+    }
+  }
+
+  function cancelPendingComputerMove() {
+    cancelPendingComputerMoveInternal({ updateThinkingState: true })
+  }
+
+  function applyMoveWithMinimumDelay(move, requestId) {
+    const targetDisplayMs = requestDisplayMsRef.current
+    const requestSessionId = requestSessionIdRef.current
+    const elapsed = performance.now() - requestStartedAtRef.current
+    const remaining = Math.max(0, targetDisplayMs - elapsed)
+
+    console.info('[useComputerMove] Queue computer move', {
+      move,
+      requestId,
+      requestSessionId,
+      targetDisplayMs,
+      elapsed,
+      remaining,
+    })
+
+    window.clearTimeout(applyMoveTimerRef.current)
+    applyMoveTimerRef.current = window.setTimeout(() => {
+      applyMoveTimerRef.current = null
+
+      if (requestId !== pendingRequestRef.current) {
+        console.info('[useComputerMove] Skip queued move due to stale request id', {
+          requestId,
+          latestPendingRequestId: pendingRequestRef.current,
+        })
+        return
+      }
+
+      setIsComputerThinking(false)
+      latestApplyComputerMoveRef.current(move, requestSessionId)
+    }, remaining)
   }
 
   // ========== 自定义 AI Worker 管理 ==========
@@ -145,8 +255,7 @@ export function useComputerMove({
         // 当未提供候选走法时，Worker 直接返回最佳走法
         if (move) {
           activeSearchRef.current = null
-          setIsComputerThinking(false)
-          applyComputerMove(move)
+          applyMoveWithMinimumDelay(move, requestId)
           return
         }
 
@@ -167,12 +276,11 @@ export function useComputerMove({
         }
 
         // 所有 Worker 完成，选择最佳走法
-        const bestMove = pickBestMove(activeSearch.scoredMoves, computerColor)
+        const bestMove = pickBestMove(activeSearch.scoredMoves, latestComputerColorRef.current)
         activeSearchRef.current = null
-        setIsComputerThinking(false)
 
         if (bestMove) {
-          applyComputerMove(bestMove)
+          applyMoveWithMinimumDelay(bestMove, requestId)
         }
       }
     }
@@ -188,7 +296,7 @@ export function useComputerMove({
       }
       workersRef.current = []
     }
-  }, [applyComputerMove, computerColor])
+  }, [applyComputerMove, computerColor, runtimeKey])
 
   // ========== Stockfish Worker 管理 ==========
 
@@ -200,63 +308,38 @@ export function useComputerMove({
     )
 
     worker.onmessage = (event) => {
-      const { requestId, move, error, engineFailed, fallback } = event.data
+      const { requestId, move, error, engineFailed } = event.data
 
       // 过期结果检查
       if (requestId !== pendingRequestRef.current) {
         return
       }
 
-      // 如果 Stockfish 失败且需要降级
-      if ((engineFailed || error) && fallback) {
+      if (engineFailed) {
+        console.warn('[useComputerMove] Stockfish worker reported engine failure', {
+          requestId,
+          error,
+          runtimeKey,
+        })
         setIsComputerThinking(false)
         activeSearchRef.current = null
-
-        // 降级到自定义 AI
-        if (workersRef.current.length > 0) {
-          console.info('Stockfish unavailable, falling back to custom AI')
-
-          // 优先检查开局库或强制走法
-          const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
-
-          if (forcedMove) {
-            applyComputerMove(forcedMove)
-            return
-          }
-
-          // 直接计算走法
-          pendingRequestRef.current += 1
-          const newRequestId = pendingRequestRef.current
-
-          activeSearchRef.current = { requestId: newRequestId, mode: 'fallback' }
-          setIsComputerThinking(true)
-
-          // 使用第一个 Worker 计算
-          const candidateMoves = getCandidateMoves(game.fen(), difficultyKey)
-
-          if (candidateMoves.length > 0) {
-            workersRef.current[0].postMessage({
-              requestId: newRequestId,
-              fen: game.fen(),
-              computerColor,
-              difficultyKey,
-              candidateMoves: null, // 让 Worker 自己计算所有走法
-            })
-          }
-        }
+        onEngineCrash?.()
         return
       }
 
       // 正常结果
       if (error) {
+        console.error('[useComputerMove] Stockfish worker returned error', {
+          requestId,
+          error,
+        })
         setIsComputerThinking(false)
         activeSearchRef.current = null
         return
       }
 
       activeSearchRef.current = null
-      setIsComputerThinking(false)
-      applyComputerMove(move)
+      applyMoveWithMinimumDelay(move, requestId)
     }
 
     stockfishWorkerRef.current = worker
@@ -269,7 +352,37 @@ export function useComputerMove({
       worker.terminate()
       stockfishWorkerRef.current = null
     }
-  }, [applyComputerMove])
+  }, [applyComputerMove, runtimeKey])
+
+  useEffect(() => {
+    const shouldThink =
+      Boolean(computerColor)
+      && Boolean(difficultyKey)
+      && game.turn() === computerColor
+      && !game.isGameOver()
+
+    if (!shouldThink) {
+      cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      return undefined
+    }
+
+    if (suppressNewTurns) {
+      console.info('[useComputerMove] Suppress starting new computer turn', {
+        computerColor,
+        difficultyKey,
+        gameSessionId: latestGameSessionIdRef.current,
+      })
+      return undefined
+    }
+
+    const indicatorTimer = window.setTimeout(() => {
+      setIsComputerThinking(true)
+    }, 0)
+
+    return () => {
+      window.clearTimeout(indicatorTimer)
+    }
+  }, [computerColor, difficultyKey, game, suppressNewTurns])
 
   // ========== 主调度逻辑 ==========
 
@@ -286,96 +399,137 @@ export function useComputerMove({
       && !game.isGameOver()
 
     if (!shouldThink) {
-      return () => {
-        cancelPendingComputerMove()
-      }
+      cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      return undefined
     }
 
-    // ========== 延迟触发 ==========
-    // 450ms 延迟让玩家看到上一手的结果
-    const timer = window.setTimeout(() => {
-      // ========== Stockfish 模式 ==========
-      if (usesStockfish) {
-        if (!stockfishWorkerRef.current) {
-          return
+    if (suppressNewTurns) {
+      console.info('[useComputerMove] Suppress new move scheduling while reset is pending', {
+        computerColor,
+        difficultyKey,
+        gameSessionId: latestGameSessionIdRef.current,
+      })
+      return undefined
+    }
+
+    requestStartedAtRef.current = performance.now()
+    requestDisplayMsRef.current = getRandomizedMoveDisplayMs(latestMinMoveDisplayMsRef.current)
+    requestSessionIdRef.current = latestGameSessionIdRef.current
+    console.info('[useComputerMove] Start computer turn', {
+      computerColor,
+      difficultyKey,
+      usesStockfish,
+      requestSessionId: requestSessionIdRef.current,
+    })
+
+    // ========== Stockfish 模式 ==========
+    if (usesStockfish) {
+      if (!stockfishWorkerRef.current) {
+        return () => {
+          if (suppressNewTurnsRef.current) {
+            return
+          }
+          cancelPendingComputerMoveInternal({ updateThinkingState: false })
         }
-
-        // 生成新请求 ID
-        pendingRequestRef.current += 1
-        const requestId = pendingRequestRef.current
-
-        // 记录活跃搜索
-        activeSearchRef.current = { requestId, mode: 'stockfish' }
-        setIsComputerThinking(true)
-
-        // 发送请求到 Stockfish
-        stockfishWorkerRef.current.postMessage({
-          requestId,
-          fen: game.fen(),
-          difficultyKey,
-        })
-        return
       }
 
-      // ========== 自定义 AI 模式 ==========
-
-      if (workersRef.current.length === 0) {
-        return
-      }
-
-      // 优先检查开局库或强制走法
-      const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
-
-      if (forcedMove) {
-        applyComputerMove(forcedMove)
-        return
-      }
-
-      // 获取候选走法
-      const candidateMoves = getCandidateMoves(game.fen(), difficultyKey)
-
-      if (candidateMoves.length === 0) {
-        return
-      }
-
-      // 生成请求 ID
+      // 生成新请求 ID
       pendingRequestRef.current += 1
       const requestId = pendingRequestRef.current
 
-      // 将候选走法分片
-      const moveChunks = chunkMoves(
-        candidateMoves,
-        Math.min(workersRef.current.length, candidateMoves.length)
-      )
+      // 记录活跃搜索
+      activeSearchRef.current = { requestId, mode: 'stockfish' }
 
-      setIsComputerThinking(true)
-
-      // 记录活跃搜索信息
-      activeSearchRef.current = {
+      // 发送请求到 Stockfish
+      stockfishWorkerRef.current.postMessage({
         requestId,
-        expectedWorkers: moveChunks.length,
-        completedWorkers: 0,
-        scoredMoves: [],
-      }
-
-      // 分发任务到各个 Worker
-      moveChunks.forEach((moves, index) => {
-        workersRef.current[index].postMessage({
-          requestId,
-          fen: game.fen(),
-          computerColor,
-          difficultyKey,
-          candidateMoves: moves,
-        })
+        fen: game.fen(),
+        difficultyKey,
       })
-    }, 450)
 
-    // ========== 清理函数 ==========
-    return () => {
-      window.clearTimeout(timer)
-      cancelPendingComputerMove()
+      return () => {
+        if (suppressNewTurnsRef.current) {
+          return
+        }
+        cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      }
     }
-  }, [applyComputerMove, computerColor, difficultyKey, game, usesStockfish])
+
+    // ========== 自定义 AI 模式 ==========
+
+    if (workersRef.current.length === 0) {
+      return () => {
+        if (suppressNewTurnsRef.current) {
+          return
+        }
+        cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      }
+    }
+
+    // 优先检查开局库或强制走法
+    const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
+
+    if (forcedMove) {
+      pendingRequestRef.current += 1
+      const requestId = pendingRequestRef.current
+      applyMoveWithMinimumDelay(forcedMove, requestId)
+
+      return () => {
+        if (suppressNewTurnsRef.current) {
+          return
+        }
+        cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      }
+    }
+
+    // 获取候选走法
+    const candidateMoves = getCandidateMoves(game.fen(), difficultyKey)
+
+    if (candidateMoves.length === 0) {
+      return () => {
+        if (suppressNewTurnsRef.current) {
+          return
+        }
+        cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      }
+    }
+
+    // 生成请求 ID
+    pendingRequestRef.current += 1
+    const requestId = pendingRequestRef.current
+
+    // 将候选走法分片
+    const moveChunks = chunkMoves(
+      candidateMoves,
+      Math.min(workersRef.current.length, candidateMoves.length)
+    )
+
+    // 记录活跃搜索信息
+    activeSearchRef.current = {
+      requestId,
+      expectedWorkers: moveChunks.length,
+      completedWorkers: 0,
+      scoredMoves: [],
+    }
+
+    // 分发任务到各个 Worker
+    moveChunks.forEach((moves, index) => {
+      workersRef.current[index].postMessage({
+        requestId,
+        fen: game.fen(),
+        computerColor,
+        difficultyKey,
+        candidateMoves: moves,
+      })
+    })
+
+    return () => {
+      if (suppressNewTurnsRef.current) {
+        return
+      }
+      cancelPendingComputerMoveInternal({ updateThinkingState: false })
+    }
+  }, [applyComputerMove, computerColor, difficultyKey, game, suppressNewTurns, usesStockfish])
 
   // ========== 返回值 ==========
 

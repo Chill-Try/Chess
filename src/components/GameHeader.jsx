@@ -34,13 +34,8 @@ import PropTypes from 'prop-types'
 export default function GameHeader({ statusText, drawNotice }) {
   return (
     <>
-      {/* 标题行 */}
+      {/* 状态行 */}
       <div className="panel-header">
-        <div>
-          <p className="eyebrow">国际象棋</p>
-        </div>
-
-        {/* 状态信息堆叠 */}
         <div className="status-stack">
           {/* 主要状态提示 */}
           <p className="status-pill">{statusText}</p>

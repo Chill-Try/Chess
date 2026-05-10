@@ -101,8 +101,14 @@ let engineReady = false
 /** 当前活跃请求信息 */
 let currentRequest = null
 
+/** 崩溃后等待恢复并重放的请求 */
+let pendingRecoveryRequest = null
+
 /** 等待 readyok 的 Promise 解决函数队列 */
 let readyResolvers = []
+
+/** 等待下一次 readyok 的 Promise 解决函数队列 */
+let readySignalResolvers = []
 
 /** 重试次数计数器 */
 let retryCount = 0
@@ -112,6 +118,9 @@ const MAX_RETRIES = 2
 
 /** 引擎初始化失败标志 */
 let engineFailed = false
+
+/** 引擎是否正在恢复中，避免重复恢复 */
+let recoveringEngine = false
 
 // ==================== 错误恢复 ====================
 
@@ -133,6 +142,8 @@ function resetEngine() {
   engineFailed = false
   retryCount = 0
   readyResolvers = []
+  readySignalResolvers = []
+  pendingRecoveryRequest = null
 }
 
 /**
@@ -142,12 +153,75 @@ function resetEngine() {
  * @param {string} error - 错误信息
  */
 function notifyFailure(requestId, error) {
+  console.error('[stockfishWorker] Notify engine failure to main thread', {
+    requestId,
+    error,
+  })
   self.postMessage({
     requestId,
     error,
     engineFailed: true,
   })
   currentRequest = null
+}
+
+/**
+ * 统一处理引擎崩溃/异常。
+ *
+ * 目标：
+ * - 捕获异常后立刻让当前请求失败并通知主线程重建 worker
+ * - 清理坏掉的引擎实例，避免卡住后续请求
+ * - 控制重试次数，避免异常风暴
+ *
+ * @param {unknown} error
+ */
+function handleEngineCrash(error) {
+  if (recoveringEngine) {
+    console.warn('[stockfishWorker] Ignore duplicate crash while recovering', { error })
+    return
+  }
+
+  recoveringEngine = true
+  retryCount += 1
+  engineReady = false
+
+  const failedRequestId = currentRequest?.requestId ?? null
+  pendingRecoveryRequest = currentRequest ? { ...currentRequest } : null
+
+  try {
+    engine?.terminate()
+  } catch {
+    // 忽略终止错误
+  }
+
+  engine = null
+  currentRequest = null
+  readyResolvers = []
+  readySignalResolvers = []
+
+  if (retryCount < MAX_RETRIES) {
+    console.warn('[stockfishWorker] Stockfish error, rebuilding engine', {
+      retryCount,
+      maxRetries: MAX_RETRIES,
+      error,
+    })
+    recoveringEngine = false
+    ensureEngine()
+    return
+  }
+
+  engineFailed = true
+  console.error('[stockfishWorker] Stockfish failed after retries', {
+    retryCount,
+    maxRetries: MAX_RETRIES,
+    error,
+  })
+
+  if (failedRequestId !== null) {
+    notifyFailure(failedRequestId, 'Stockfish engine crashed')
+  }
+
+  recoveringEngine = false
 }
 
 // ==================== 引擎初始化 ====================
@@ -160,6 +234,8 @@ function resolveReady() {
   engineReady = true
   readyResolvers.forEach((resolve) => resolve())
   readyResolvers = []
+  readySignalResolvers.forEach((resolve) => resolve())
+  readySignalResolvers = []
 }
 
 /**
@@ -176,6 +252,39 @@ function waitForReady() {
     readyResolvers.push(resolve)
     engine.postMessage('isready')
   })
+}
+
+/**
+ * 主动等待下一次 readyok。
+ *
+ * 用于在 stop / ucinewgame 等命令后确认引擎已经处理完前序命令，
+ * 避免旧搜索的 bestmove 串到新请求。
+ *
+ * @returns {Promise<void>}
+ */
+function waitForNextReadySignal() {
+  return new Promise((resolve) => {
+    readySignalResolvers.push(resolve)
+    engine.postMessage('isready')
+  })
+}
+
+/**
+ * 停止当前搜索并等待引擎回到空闲状态。
+ *
+ * 注意：
+ * - 先清空 currentRequest，这样旧搜索返回的 bestmove 会被直接忽略
+ * - 再等待一轮 readyok，确保 stop 已被引擎处理完成
+ */
+async function stopCurrentSearch() {
+  if (!engine) {
+    currentRequest = null
+    return
+  }
+
+  currentRequest = null
+  engine.postMessage('stop')
+  await waitForNextReadySignal()
 }
 
 /**
@@ -222,13 +331,19 @@ function ensureEngine() {
   }
 
   // 如果引擎正在初始化但尚未就绪，不重复创建
-  if (retryCount > 0 && !engineReady) {
+  if (engine && !engineReady) {
+    return
+  }
+
+  if (recoveringEngine) {
     return
   }
 
   try {
     // 重置旧引擎（如果有）
     resetEngine()
+
+    console.info('[stockfishWorker] Creating stockfish engine worker')
 
     // 创建 Worker
     engine = new Worker(stockfishEngineUrl)
@@ -240,6 +355,16 @@ function ensureEngine() {
       // ========== 引擎就绪 ==========
       if (line.includes('readyok')) {
         resolveReady()
+
+        if (pendingRecoveryRequest && !currentRequest) {
+          const requestToReplay = pendingRecoveryRequest
+          pendingRecoveryRequest = null
+          console.info('[stockfishWorker] Engine recovered, replaying pending request', {
+            requestId: requestToReplay.requestId,
+            difficultyKey: requestToReplay.difficultyKey,
+          })
+          startSearch(requestToReplay)
+        }
         return
       }
 
@@ -253,23 +378,8 @@ function ensureEngine() {
 
     // 错误处理
     engine.onerror = (error) => {
-      retryCount++
-
-      if (retryCount < MAX_RETRIES) {
-        // 尝试重新初始化
-        console.warn(`Stockfish error, retrying (${retryCount}/${MAX_RETRIES})...`, error)
-        engine = null
-        engineReady = false
-        return
-      }
-
-      // 达到最大重试次数，标记为失败
-      engineFailed = true
-      console.error('Stockfish failed to initialize after retries', error)
-
-      if (currentRequest) {
-        notifyFailure(currentRequest.requestId, 'Stockfish engine failed to load')
-      }
+      console.error('[stockfishWorker] Engine worker onerror', error)
+      handleEngineCrash(error)
     }
 
     // ========== UCI 初始化 ==========
@@ -278,16 +388,47 @@ function ensureEngine() {
     engine.postMessage('setoption name UCI_AnalyseMode value false')
     engine.postMessage('isready')
   } catch (e) {
-    retryCount++
-    console.error('Stockfish initialization error:', e)
-
-    if (retryCount >= MAX_RETRIES) {
-      engineFailed = true
-      if (currentRequest) {
-        notifyFailure(currentRequest.requestId, 'Failed to create Stockfish engine')
-      }
-    }
+    console.error('[stockfishWorker] Stockfish initialization error', e)
+    handleEngineCrash(e)
   }
+}
+
+function startSearch(request) {
+  const { requestId, fen, difficultyKey } = request
+  const config = STOCKFISH_CONFIG[difficultyKey]
+
+  if (!config) {
+    self.postMessage({ requestId, error: `Unsupported Stockfish difficulty: ${difficultyKey}` })
+    return
+  }
+
+  currentRequest = { requestId, fen, difficultyKey }
+  console.info('[stockfishWorker] Start search', {
+    requestId,
+    difficultyKey,
+    fen,
+  })
+
+  engine.postMessage('ucinewgame')
+
+  if (typeof config.skillLevel === 'number') {
+    engine.postMessage(`setoption name Skill Level value ${config.skillLevel}`)
+  }
+
+  engine.postMessage(`setoption name UCI_LimitStrength value ${config.limitStrength ? 'true' : 'false'}`)
+
+  if (config.limitStrength && config.elo) {
+    engine.postMessage(`setoption name UCI_Elo value ${config.elo}`)
+  }
+
+  engine.postMessage(`position fen ${fen}`)
+
+  if (config.movetime) {
+    engine.postMessage(`go movetime ${config.movetime}`)
+    return
+  }
+
+  engine.postMessage(`go depth ${config.depth}`)
 }
 
 // ==================== 主消息处理 ====================
@@ -308,13 +449,33 @@ function ensureEngine() {
 self.onmessage = async (event) => {
   const { requestId, fen, difficultyKey, cancel } = event.data
 
+  // ========== 取消请求 ==========
+  if (cancel) {
+    console.info('[stockfishWorker] Cancel request', {
+      requestId,
+      hasEngine: Boolean(engine),
+      hasCurrentRequest: Boolean(currentRequest),
+    })
+    pendingRecoveryRequest = null
+    if (engine && currentRequest) {
+      await stopCurrentSearch()
+      return
+    }
+
+    currentRequest = null
+    return
+  }
+
   // ========== 引擎失败检查 ==========
   if (engineFailed) {
+    console.warn('[stockfishWorker] Reject request because engine is failed', {
+      requestId,
+      difficultyKey,
+    })
     self.postMessage({
       requestId,
       engineFailed: true,
       error: 'Stockfish engine unavailable',
-      fallback: true, // 通知主线程可以降级到自定义 AI
     })
     return
   }
@@ -335,27 +496,17 @@ self.onmessage = async (event) => {
 
   // 再次检查引擎状态
   if (!engineReady || engineFailed) {
+    console.warn('[stockfishWorker] Reject request because engine is not ready', {
+      requestId,
+      difficultyKey,
+      engineReady,
+      engineFailed,
+    })
     self.postMessage({
       requestId,
       engineFailed: true,
       error: 'Stockfish not ready',
-      fallback: true,
     })
-    return
-  }
-
-  // ========== 取消请求 ==========
-  if (cancel) {
-    currentRequest = null
-    engine.postMessage('stop')
-    return
-  }
-
-  // 获取难度配置
-  const config = STOCKFISH_CONFIG[difficultyKey]
-
-  if (!config) {
-    self.postMessage({ requestId, error: `Unsupported Stockfish difficulty: ${difficultyKey}` })
     return
   }
 
@@ -365,36 +516,8 @@ self.onmessage = async (event) => {
   // ========== 新请求开始前停止旧搜索 ==========
   // 避免旧结果污染新局面
   if (currentRequest) {
-    engine.postMessage('stop')
+    await stopCurrentSearch()
   }
 
-  // 记录当前请求
-  currentRequest = { requestId }
-
-  // 开始新游戏
-  engine.postMessage('ucinewgame')
-
-  // ========== 设置技能等级 ==========
-  if (typeof config.skillLevel === 'number') {
-    engine.postMessage(`setoption name Skill Level value ${config.skillLevel}`)
-  }
-
-  // ========== 设置强度限制 ==========
-  engine.postMessage(`setoption name UCI_LimitStrength value ${config.limitStrength ? 'true' : 'false'}`)
-
-  if (config.limitStrength && config.elo) {
-    engine.postMessage(`setoption name UCI_Elo value ${config.elo}`)
-  }
-
-  // ========== 设置局面并搜索 ==========
-  engine.postMessage(`position fen ${fen}`)
-
-  if (config.movetime) {
-    // 按时间搜索
-    engine.postMessage(`go movetime ${config.movetime}`)
-    return
-  }
-
-  // 按深度搜索
-  engine.postMessage(`go depth ${config.depth}`)
+  startSearch({ requestId, fen, difficultyKey })
 }

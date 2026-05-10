@@ -10,7 +10,6 @@
  * - 我方角色
  * - 敌方角色
  * - 当前行棋方
- * - 当前主要难度
  * - 当前搜索深度
  *
  * ============================================================================
@@ -33,7 +32,6 @@ import PropTypes from 'prop-types'
  * @param {string} props.mySideSummary - 我方摘要
  * @param {string} props.opponentSideSummary - 敌方摘要
  * @param {string} props.turnLabel - 当前行棋方标签
- * @param {string} props.difficultyLabel - 难度标签
  * @param {number} props.currentSearchDepth - 当前搜索深度
  *
  * @returns {JSX.Element|null}
@@ -45,7 +43,6 @@ export default function GameInfo({
   mySideSummary,
   opponentSideSummary,
   turnLabel,
-  difficultyLabel,
   currentSearchDepth,
 }) {
   if (!hasComputerSide) {
@@ -76,12 +73,6 @@ export default function GameInfo({
           <dd>{turnLabel}</dd>
         </div>
 
-        {/* 当前难度 */}
-        <div>
-          <dt>当前主要难度</dt>
-          <dd>{difficultyLabel}</dd>
-        </div>
-
         {/* 当前搜索深度 */}
         <div>
           <dt>当前深度</dt>
@@ -104,8 +95,6 @@ GameInfo.propTypes = {
   opponentSideSummary: PropTypes.string.isRequired,
   /** 当前行棋方标签 */
   turnLabel: PropTypes.string.isRequired,
-  /** 难度标签 */
-  difficultyLabel: PropTypes.string.isRequired,
   /** 当前搜索深度 */
   currentSearchDepth: PropTypes.number.isRequired,
 }
