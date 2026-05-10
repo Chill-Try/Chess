@@ -1,152 +1,258 @@
 /**
  * @file components/GameControls.jsx
- * @description 游戏控制面板组件
+ * @description 角色配置面板组件
  *
- * ============================================================================
- * 模块职责
- * ============================================================================
- *
- * 提供游戏控制界面：
- * - 模式切换：人机模式 / 双人模式
- * - 颜色选择：执白先行 / 执黑后行
- * - 难度选择：新手 / 中等 / 困难 / 大师（仅人机模式显示）
- * - 重新开始按钮
- *
- * ============================================================================
- * 组件设计
- * ============================================================================
- *
- * 纯展示组件：
- * - 所有交互通过回调函数传递给父组件处理
- * - 不直接管理任何状态
- * - 所有状态由 App.jsx 持有
+ * 提供双方角色与附加配置界面：
+ * - 我方角色：玩家 / 电脑 / AI 模型
+ * - 敌方角色：玩家 / 电脑 / AI 模型
+ * - 电脑角色显示独立难度选择
+ * - AI 模型角色显示独立配置表单
  */
 
 import PropTypes from 'prop-types'
+import { useState } from 'react'
 
-/**
- * 游戏控制面板组件
- *
- * @param {Object} props
- * @param {string} props.gameMode - 当前游戏模式 ('computer'/'twoPlayer')
- * @param {string} props.playerColor - 玩家执棋颜色 ('w'/'b')
- * @param {string} props.difficultyKey - 当前难度键值
- * @param {Object[]} props.difficultyLevels - 难度等级列表
- * @param {Function} props.onModeChange - 模式切换回调
- * @param {Function} props.onColorChange - 颜色切换回调
- * @param {Function} props.onDifficultyChange - 难度切换回调
- * @param {Function} props.onReset - 重新开始回调
- *
- * @returns {JSX.Element}
- */
-export default function GameControls({
-  gameMode,
-  playerColor,
-  difficultyKey,
-  difficultyLevels,
-  onModeChange,
-  onColorChange,
-  onDifficultyChange,
-  onReset,
-}) {
+const ROLE_OPTIONS = [
+  { key: 'player', label: '玩家' },
+  { key: 'computer', label: '电脑' },
+  { key: 'aiModel', label: 'AI 模型' },
+]
+
+function DifficultySection({ title, difficultyLevels, activeKey, onChange }) {
   return (
-    <section className="card controls-card">
-      <h2>对局控制</h2>
-
-      {/* ========== 模式切换 ========== */}
-      <div className="button-row mode-row">
-        {/* 人机模式按钮 */}
-        <button
-          className={gameMode === 'computer' ? 'active' : ''}
-          type="button"
-          onClick={() => onModeChange('computer')}
-        >
-          人机模式
-        </button>
-
-        {/* 双人模式按钮 */}
-        <button
-          className={gameMode === 'twoPlayer' ? 'active' : ''}
-          type="button"
-          onClick={() => onModeChange('twoPlayer')}
-        >
-          双人模式
-        </button>
+    <div className="role-config-section">
+      <h4>{title}</h4>
+      <div className="difficulty-grid">
+        {difficultyLevels.map((level) => (
+          <button
+            key={level.key}
+            className={activeKey === level.key ? 'active' : ''}
+            type="button"
+            onClick={() => onChange(level.key)}
+          >
+            {level.label}
+          </button>
+        ))}
       </div>
-
-      {/* ========== 颜色选择 ========== */}
-      <div className="button-row">
-        {/* 执白按钮 */}
-        <button
-          className={playerColor === 'w' ? 'active' : ''}
-          type="button"
-          onClick={() => onColorChange('w')}
-        >
-          执白先行
-        </button>
-
-        {/* 执黑按钮 */}
-        <button
-          className={playerColor === 'b' ? 'active' : ''}
-          type="button"
-          onClick={() => onColorChange('b')}
-        >
-          执黑后行
-        </button>
-      </div>
-
-      {/* ========== 重新开始按钮 ========== */}
-      <button className="primary-button" type="button" onClick={onReset}>
-        重新开始
-      </button>
-
-      {/* ========== 难度选择（仅人机模式显示）========== */}
-      {gameMode === 'computer' ? (
-        <div className="difficulty-section">
-          <h3>难度</h3>
-
-          {/* 难度网格 */}
-          <div className="difficulty-grid">
-            {difficultyLevels.map((level) => (
-              <button
-                key={level.key}
-                className={difficultyKey === level.key ? 'active' : ''}
-                type="button"
-                onClick={() => onDifficultyChange(level.key)}
-              >
-                {level.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </section>
+    </div>
   )
 }
 
-/**
- * 属性类型定义
- */
-GameControls.propTypes = {
-  /** 游戏模式 */
-  gameMode: PropTypes.oneOf(['computer', 'twoPlayer']).isRequired,
-  /** 玩家执棋颜色 */
-  playerColor: PropTypes.oneOf(['w', 'b']).isRequired,
-  /** 当前难度键值 */
-  difficultyKey: PropTypes.string.isRequired,
-  /** 难度等级列表 */
+DifficultySection.propTypes = {
+  title: PropTypes.string.isRequired,
   difficultyLevels: PropTypes.arrayOf(
     PropTypes.shape({
       key: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
     })
   ).isRequired,
-  /** 模式切换回调 */
-  onModeChange: PropTypes.func.isRequired,
-  /** 颜色切换回调 */
-  onColorChange: PropTypes.func.isRequired,
-  /** 难度切换回调 */
-  onDifficultyChange: PropTypes.func.isRequired,
-  /** 重新开始回调 */
-  onReset: PropTypes.func.isRequired,
+  activeKey: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+}
+
+function AiConfigSection({ title, config, onChange }) {
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  return (
+    <div className="role-config-section">
+      <h4>{title}</h4>
+      <div className="config-form-grid">
+        <label className="config-field">
+          <span>请求 URL</span>
+          <input
+            type="text"
+            value={config.requestUrl}
+            onChange={(event) => onChange('requestUrl', event.target.value)}
+            placeholder="例：https://api.example.com/v1"
+          />
+        </label>
+
+        <label className="config-field">
+          <span>接口类型</span>
+          <select
+            value={config.provider}
+            onChange={(event) => onChange('provider', event.target.value)}
+          >
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+
+        <label className="config-field">
+          <span>API 密钥</span>
+          <div className="password-field">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={config.apiKey}
+              onChange={(event) => onChange('apiKey', event.target.value)}
+              placeholder="例：sk-XXXXXXXX"
+              autoComplete="new-password"
+            />
+            <button
+              className="password-toggle"
+              type="button"
+              aria-label={showApiKey ? '隐藏 API 密钥' : '显示 API 密钥'}
+              onClick={() => setShowApiKey((current) => !current)}
+            >
+              {showApiKey ? '🙈' : '👁'}
+            </button>
+          </div>
+        </label>
+
+        <label className="config-field">
+          <span>模型名称</span>
+          <input
+            type="text"
+            value={config.modelName}
+            onChange={(event) => onChange('modelName', event.target.value)}
+            placeholder="例：deepseek-v4-flash"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+AiConfigSection.propTypes = {
+  title: PropTypes.string.isRequired,
+  config: PropTypes.shape({
+    provider: PropTypes.oneOf(['openai', 'anthropic']).isRequired,
+    requestUrl: PropTypes.string.isRequired,
+    apiKey: PropTypes.string.isRequired,
+    modelName: PropTypes.string.isRequired,
+  }).isRequired,
+  onChange: PropTypes.func.isRequired,
+}
+
+function RoleCard({
+  title,
+  role,
+  onRoleChange,
+}) {
+  return (
+    <div className="card control-section role-card">
+      <h3>{title}</h3>
+      <div className="role-button-grid">
+        {ROLE_OPTIONS.map((option) => (
+          <button
+            key={option.key}
+            className={role === option.key ? 'active' : ''}
+            type="button"
+            onClick={() => onRoleChange(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+RoleCard.propTypes = {
+  title: PropTypes.string.isRequired,
+  role: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
+  onRoleChange: PropTypes.func.isRequired,
+}
+
+function RoleRow({
+  title,
+  role,
+  difficultyLevels,
+  computerDifficultyKey,
+  aiConfig,
+  onRoleChange,
+  onComputerDifficultyChange,
+  onAiConfigChange,
+}) {
+  const sidePanel =
+    role === 'computer' ? (
+      <DifficultySection
+        title={`${title}难度`}
+        difficultyLevels={difficultyLevels}
+        activeKey={computerDifficultyKey}
+        onChange={onComputerDifficultyChange}
+      />
+    ) : role === 'aiModel' ? (
+      <AiConfigSection
+        title={`${title} AI 模型配置`}
+        config={aiConfig}
+        onChange={onAiConfigChange}
+      />
+    ) : null
+
+  return (
+    <div className="role-row">
+      <RoleCard title={title} role={role} onRoleChange={onRoleChange} />
+      {sidePanel ? <div className="card role-side-panel">{sidePanel}</div> : null}
+    </div>
+  )
+}
+
+RoleRow.propTypes = {
+  title: PropTypes.string.isRequired,
+  role: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
+  difficultyLevels: DifficultySection.propTypes.difficultyLevels,
+  computerDifficultyKey: PropTypes.string.isRequired,
+  aiConfig: AiConfigSection.propTypes.config,
+  onRoleChange: PropTypes.func.isRequired,
+  onComputerDifficultyChange: PropTypes.func.isRequired,
+  onAiConfigChange: PropTypes.func.isRequired,
+}
+
+export default function GameControls({
+  mySideRole,
+  opponentSideRole,
+  myComputerDifficultyKey,
+  opponentComputerDifficultyKey,
+  difficultyLevels,
+  myAiConfig,
+  opponentAiConfig,
+  onMySideRoleChange,
+  onOpponentSideRoleChange,
+  onMyComputerDifficultyChange,
+  onOpponentComputerDifficultyChange,
+  onMyAiConfigChange,
+  onOpponentAiConfigChange,
+}) {
+  return (
+    <div className="role-columns">
+      <RoleRow
+        title="敌方"
+        role={opponentSideRole}
+        difficultyLevels={difficultyLevels}
+        computerDifficultyKey={opponentComputerDifficultyKey}
+        aiConfig={opponentAiConfig}
+        onRoleChange={onOpponentSideRoleChange}
+        onComputerDifficultyChange={onOpponentComputerDifficultyChange}
+        onAiConfigChange={onOpponentAiConfigChange}
+      />
+
+      <RoleRow
+        title="我方"
+        role={mySideRole}
+        difficultyLevels={difficultyLevels}
+        computerDifficultyKey={myComputerDifficultyKey}
+        aiConfig={myAiConfig}
+        onRoleChange={onMySideRoleChange}
+        onComputerDifficultyChange={onMyComputerDifficultyChange}
+        onAiConfigChange={onMyAiConfigChange}
+      />
+    </div>
+  )
+}
+
+GameControls.propTypes = {
+  mySideRole: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
+  opponentSideRole: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
+  myComputerDifficultyKey: PropTypes.string.isRequired,
+  opponentComputerDifficultyKey: PropTypes.string.isRequired,
+  difficultyLevels: DifficultySection.propTypes.difficultyLevels,
+  myAiConfig: AiConfigSection.propTypes.config,
+  opponentAiConfig: AiConfigSection.propTypes.config,
+  onMySideRoleChange: PropTypes.func.isRequired,
+  onOpponentSideRoleChange: PropTypes.func.isRequired,
+  onMyComputerDifficultyChange: PropTypes.func.isRequired,
+  onOpponentComputerDifficultyChange: PropTypes.func.isRequired,
+  onMyAiConfigChange: PropTypes.func.isRequired,
+  onOpponentAiConfigChange: PropTypes.func.isRequired,
 }

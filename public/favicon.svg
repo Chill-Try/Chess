@@ -1,12 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- 背景 -->
   <rect width="64" height="64" rx="14" fill="#f5fbff"/>
-  <path
-    d="M22 50h20M25 44h14l4-6-2-9-8-9 3-6-10 2-5 8v6l4 5-1 9 1 0z"
-    fill="none"
-    stroke="#2f6f91"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="3.5"
-  />
-  <circle cx="35" cy="25" r="1.8" fill="#2f6f91"/>
+
+  <!-- 白马棋子（骑士 Knight） -->
+  <!-- 底座 -->
+  <path d="M16 56h32l3-3H13l3 3z" fill="#f5fbff" stroke="#2f6f91" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 底座上层 -->
+  <path d="M15 50h34l3-3H12l3 3z" fill="#f5fbff" stroke="#2f6f91" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 棋子颈部 -->
+  <path d="M18 42h28l4-8H14l4 8z" fill="#f5fbff" stroke="#2f6f91" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 马头主体 -->
+  <path d="M24 10c0-2 6-4 8-4s8 2 8 4c0 3-3 8-3 18v12c0 2-2 4-4 4h-2c-2 0-4-2-4-4V28c0-10-3-15-3-18z" fill="#f5fbff" stroke="#2f6f91" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- 马耳 -->
+  <path d="M28 6l2-4 2 4" fill="none" stroke="#2f6f91" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 马眼 -->
+  <circle cx="30" cy="18" r="2.5" fill="#2f6f91"/>
+
+  <!-- 马嚼子 -->
+  <path d="M24 26h16" stroke="#2f6f91" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- 马额毛 -->
+  <path d="M26 10c2-2 4-2 6-2s4 0 6 2" fill="none" stroke="#2f6f91" stroke-width="2" stroke-linecap="round"/>
 </svg>

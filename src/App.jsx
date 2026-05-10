@@ -26,12 +26,26 @@ import GameControls from './components/GameControls'
 import GameHeader from './components/GameHeader'
 import GameInfo from './components/GameInfo'
 import MoveHistory from './components/MoveHistory'
+import OpeningActions from './components/OpeningActions'
 import SoundSettings from './components/SoundSettings'
 import { useComputerMove } from './hooks/useComputerMove'
 import { applyMoveToGame, canInteractWithSquare, cloneGameWithHistory, getCheckingSquares, getExposedKingSquaresAfterVisualMove, getKingSquare } from './lib/gameState'
 import { getColorLabel, getDrawNotice, getStatusText, groupMovesByTurn } from './lib/gameStatus'
 import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playInvalidMoveSound } from './lib/soundManager'
 import './App.css'
+
+const DEFAULT_AI_CONFIG = {
+  provider: 'openai',
+  requestUrl: '',
+  apiKey: '',
+  modelName: '',
+}
+
+const ROLE_LABELS = {
+  player: '玩家',
+  computer: '电脑',
+  aiModel: 'AI 模型',
+}
 
 /**
  * 主应用组件
@@ -56,6 +70,24 @@ function App() {
 
   /** @type {string} AI 难度等级键值 */
   const [difficultyKey, setDifficultyKey] = useState('medium')
+
+  /** @type {string} 我方角色 */
+  const [mySideRole, setMySideRole] = useState('player')
+
+  /** @type {string} 敌方角色 */
+  const [opponentSideRole, setOpponentSideRole] = useState('computer')
+
+  /** @type {string} 我方电脑难度 */
+  const [myComputerDifficultyKey, setMyComputerDifficultyKey] = useState('medium')
+
+  /** @type {string} 敌方电脑难度 */
+  const [opponentComputerDifficultyKey, setOpponentComputerDifficultyKey] = useState('medium')
+
+  /** @type {{requestUrl:string, apiKey:string, modelName:string}} 我方 AI 模型配置 */
+  const [myAiConfig, setMyAiConfig] = useState(DEFAULT_AI_CONFIG)
+
+  /** @type {{requestUrl:string, apiKey:string, modelName:string}} 敌方 AI 模型配置 */
+  const [opponentAiConfig, setOpponentAiConfig] = useState(DEFAULT_AI_CONFIG)
 
   /**
    * 棋盘重置计数器
@@ -132,6 +164,26 @@ function App() {
    * 注意：Stockfish 难度显示的是 stockfishDepth，自定义 AI 显示配置的 depth
    */
   const currentSearchDepth = getCurrentSearchDepth(fen, difficultyKey)
+
+  /** 是否存在电脑角色，用于决定是否显示对局信息 */
+  const hasComputerSide = mySideRole === 'computer' || opponentSideRole === 'computer'
+
+  /** 我方摘要文案 */
+  const mySideSummary = `${ROLE_LABELS[mySideRole]} · ${getColorLabel(playerColor)}`
+
+  /** 敌方摘要文案 */
+  const opponentSideSummary = `${ROLE_LABELS[opponentSideRole]} · ${getColorLabel(computerColor)}`
+
+  /** 信息卡显示的主要难度 */
+  const primaryDifficultyLabel = hasComputerSide
+    ? DIFFICULTY_BY_KEY[
+        opponentSideRole === 'computer'
+          ? opponentComputerDifficultyKey
+          : mySideRole === 'computer'
+            ? myComputerDifficultyKey
+            : difficultyKey
+      ]?.label ?? difficulty.label
+    : difficulty.label
 
   /**
    * 玩家是否可以走棋
@@ -421,28 +473,19 @@ function App() {
     }, 760)
   }
 
-  /**
-   * 处理难度切换
-   *
-   * @param {string} nextDifficultyKey - 新的难度键值
-   *
-   * 注意：切换难度会重置棋局（因为不同难度下 AI 策略不同）
-   */
-  function handleDifficultyChange(nextDifficultyKey) {
-    setDifficultyKey(nextDifficultyKey)
-    resetGame(playerColor)
-  }
+  function handleAiConfigChange(side, field, value) {
+    if (side === 'my') {
+      setMyAiConfig((current) => ({
+        ...current,
+        [field]: value,
+      }))
+      return
+    }
 
-  /**
-   * 处理游戏模式切换
-   *
-   * @param {string} nextMode - 新模式 ('computer' 或 'twoPlayer')
-   *
-   * 注意：切换模式会重置棋局
-   */
-  function handleModeChange(nextMode) {
-    setGameMode(nextMode)
-    resetGame(playerColor)
+    setOpponentAiConfig((current) => ({
+      ...current,
+      [field]: value,
+    }))
   }
 
   /**
@@ -665,25 +708,36 @@ function App() {
 
       {/* 右侧：控制面板 */}
       <aside className="sidebar">
-        {/* 游戏控制区：模式切换、颜色选择、难度选择、重新开始 */}
-        <GameControls
-          gameMode={gameMode}
+        <OpeningActions
           playerColor={playerColor}
-          difficultyKey={difficultyKey}
-          difficultyLevels={DIFFICULTY_LEVELS}
-          onModeChange={handleModeChange}
           onColorChange={handleColorChange}
-          onDifficultyChange={handleDifficultyChange}
           onReset={() => resetGame()}
+        />
+
+        {/* 游戏控制区：模式切换、难度选择 */}
+        <GameControls
+          mySideRole={mySideRole}
+          opponentSideRole={opponentSideRole}
+          myComputerDifficultyKey={myComputerDifficultyKey}
+          opponentComputerDifficultyKey={opponentComputerDifficultyKey}
+          difficultyLevels={DIFFICULTY_LEVELS}
+          myAiConfig={myAiConfig}
+          opponentAiConfig={opponentAiConfig}
+          onMySideRoleChange={setMySideRole}
+          onOpponentSideRoleChange={setOpponentSideRole}
+          onMyComputerDifficultyChange={setMyComputerDifficultyKey}
+          onOpponentComputerDifficultyChange={setOpponentComputerDifficultyKey}
+          onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
+          onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
         />
 
         {/* 对局信息区：显示玩家/电脑颜色、当前行棋方、难度、搜索深度 */}
         <GameInfo
-          gameMode={gameMode}
-          playerLabel={getColorLabel(playerColor)}
-          computerLabel={getColorLabel(computerColor)}
+          hasComputerSide={hasComputerSide}
+          mySideSummary={mySideSummary}
+          opponentSideSummary={opponentSideSummary}
           turnLabel={getColorLabel(game.turn())}
-          difficultyLabel={difficulty.label}
+          difficultyLabel={primaryDifficultyLabel}
           currentSearchDepth={currentSearchDepth}
         />
 

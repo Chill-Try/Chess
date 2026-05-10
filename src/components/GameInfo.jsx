@@ -7,10 +7,10 @@
  * ============================================================================
  *
  * 显示当前对局的详细信息：
- * - 玩家方（你方）
- * - 电脑方
+ * - 我方角色
+ * - 敌方角色
  * - 当前行棋方
- * - 当前难度
+ * - 当前主要难度
  * - 当前搜索深度
  *
  * ============================================================================
@@ -18,7 +18,7 @@
  * ============================================================================
  *
  * 展示组件特性：
- * - 仅在人机模式下显示（双人模式返回 null）
+ * - 当任意一方选择电脑时显示
  * - 完全由 props 驱动
  * - 父组件 App.jsx 计算所有显示数据
  */
@@ -29,27 +29,26 @@ import PropTypes from 'prop-types'
  * 对局信息展示组件
  *
  * @param {Object} props
- * @param {string} props.gameMode - 游戏模式
- * @param {string} props.playerLabel - 玩家方标签（如"白方"）
- * @param {string} props.computerLabel - 电脑方标签
+ * @param {boolean} props.hasComputerSide - 是否存在电脑角色
+ * @param {string} props.mySideSummary - 我方摘要
+ * @param {string} props.opponentSideSummary - 敌方摘要
  * @param {string} props.turnLabel - 当前行棋方标签
  * @param {string} props.difficultyLabel - 难度标签
  * @param {number} props.currentSearchDepth - 当前搜索深度
  *
  * @returns {JSX.Element|null}
  *
- * 注意：双人模式时返回 null，不渲染任何内容
+ * 注意：没有电脑角色时返回 null，不渲染任何内容
  */
 export default function GameInfo({
-  gameMode,
-  playerLabel,
-  computerLabel,
+  hasComputerSide,
+  mySideSummary,
+  opponentSideSummary,
   turnLabel,
   difficultyLabel,
   currentSearchDepth,
 }) {
-  // 仅在人机模式下显示
-  if (gameMode !== 'computer') {
+  if (!hasComputerSide) {
     return null
   }
 
@@ -59,16 +58,16 @@ export default function GameInfo({
 
       {/* 信息定义列表 */}
       <dl className="info-grid">
-        {/* 玩家方 */}
+        {/* 我方 */}
         <div>
-          <dt>你方</dt>
-          <dd>{playerLabel}</dd>
+          <dt>我方</dt>
+          <dd>{mySideSummary}</dd>
         </div>
 
-        {/* 电脑方 */}
+        {/* 敌方 */}
         <div>
-          <dt>电脑</dt>
-          <dd>{computerLabel}</dd>
+          <dt>敌方</dt>
+          <dd>{opponentSideSummary}</dd>
         </div>
 
         {/* 当前行棋方 */}
@@ -79,7 +78,7 @@ export default function GameInfo({
 
         {/* 当前难度 */}
         <div>
-          <dt>当前难度</dt>
+          <dt>当前主要难度</dt>
           <dd>{difficultyLabel}</dd>
         </div>
 
@@ -97,12 +96,12 @@ export default function GameInfo({
  * 属性类型定义
  */
 GameInfo.propTypes = {
-  /** 游戏模式 */
-  gameMode: PropTypes.oneOf(['computer', 'twoPlayer']).isRequired,
-  /** 玩家方标签 */
-  playerLabel: PropTypes.string.isRequired,
-  /** 电脑方标签 */
-  computerLabel: PropTypes.string.isRequired,
+  /** 是否存在电脑角色 */
+  hasComputerSide: PropTypes.bool.isRequired,
+  /** 我方摘要 */
+  mySideSummary: PropTypes.string.isRequired,
+  /** 敌方摘要 */
+  opponentSideSummary: PropTypes.string.isRequired,
   /** 当前行棋方标签 */
   turnLabel: PropTypes.string.isRequired,
   /** 难度标签 */

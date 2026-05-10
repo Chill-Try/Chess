@@ -9,6 +9,8 @@
   --text-dark: #3d2914;
   --text-medium: #6b4423;
   --accent-brown: #8b4513;
+  --sidebar-main-width: 360px;
+  --sidebar-side-width: 400px;
 }
 
 body {
@@ -30,7 +32,7 @@ body {
   margin: 0 auto;
   padding: 32px;
   display: grid;
-  grid-template-columns: minmax(400px, 900px) minmax(280px, 320px);
+  grid-template-columns: minmax(400px, 860px) minmax(320px, 380px);
   gap: 24px;
 }
 
@@ -159,21 +161,140 @@ body {
 .sidebar {
   display: grid;
   align-content: start;
+  justify-items: start;
   gap: 18px;
+  overflow: visible;
 }
 
 .card {
   padding: 20px;
   align-self: start;
+  box-sizing: border-box;
 }
 
-.controls-card,
 .info-card,
 .moves-card,
 .sound-card,
 .difficulty-section {
   display: grid;
   gap: 16px;
+}
+
+.opening-actions-card,
+.control-section {
+  display: grid;
+  gap: 14px;
+}
+
+.opening-actions-card,
+.info-card,
+.moves-card,
+.sound-card,
+.role-card {
+  width: var(--sidebar-main-width);
+}
+
+.role-columns,
+.role-row,
+.role-card,
+.role-config-section,
+.config-form-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.role-columns {
+  gap: 18px;
+}
+
+.role-row {
+  width: auto;
+  max-width: none;
+  grid-template-columns: var(--sidebar-main-width) var(--sidebar-side-width);
+  align-items: start;
+  gap: 16px;
+}
+
+.role-card {
+  gap: 16px;
+}
+
+.role-side-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.role-side-panel {
+  align-self: start;
+}
+
+.opening-actions-card h2,
+.control-section h3,
+.role-config-section h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-dark);
+}
+
+.role-config-section h4 {
+  font-size: 0.9rem;
+  color: var(--text-medium);
+}
+
+.role-button-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 1.2fr);
+  gap: 10px;
+}
+
+.config-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text-medium);
+  font-size: 0.88rem;
+}
+
+.config-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 6px;
+  align-items: center;
+}
+
+.config-field input,
+.config-field select {
+  width: 100%;
+  appearance: none;
+  border: 1px solid rgba(139, 105, 20, 0.26);
+  background: rgba(254, 249, 240, 0.9);
+  color: var(--text-dark);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.password-toggle {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+  border-radius: 10px;
+}
+
+.config-field input:focus,
+.config-field select:focus {
+  outline: 2px solid rgba(139, 69, 19, 0.24);
+  border-color: var(--accent-brown);
 }
 
 /* 音效设置卡片样式 */
@@ -384,6 +505,15 @@ button.active:hover,
   .status-pill {
     min-width: 0;
   }
+
+  .role-row {
+    width: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .role-side-panel {
+    align-self: stretch;
+  }
 }
 
 @media (max-width: 640px) {
@@ -391,8 +521,10 @@ button.active:hover,
     padding: 12px;
   }
 
+  .role-button-grid,
   .button-row,
   .difficulty-grid,
+  .config-form-grid,
   .info-grid {
     grid-template-columns: 1fr;
   }
