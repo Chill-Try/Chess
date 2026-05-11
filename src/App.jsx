@@ -31,6 +31,7 @@ import OpeningActions from './components/OpeningActions'
 import SoundSettings from './components/SoundSettings'
 import { useComputerMove } from './hooks/useComputerMove'
 import { createRandomSupportedEndgameDrill } from './lib/endgameDrill'
+import { getCurrentStockfishDispersion } from './lib/stockfishDispersion'
 import {
   canInteractWithSquare,
   cloneGameWithHistory,
@@ -221,9 +222,25 @@ function App() {
    * 注意：Stockfish 难度显示的是 stockfishDepth，自定义 AI 显示配置的 depth
    */
   const currentSearchDepth = activeDifficultyKey ? getCurrentSearchDepth(fen, activeDifficultyKey) : 0
-  const displayedSearchDepth = usesStockfish
-    ? Math.max(0, currentSearchDepth - 4)
-    : currentSearchDepth
+  const displayedSearchDepth = activeComputerTurn
+    ? (
+        usesStockfish
+          ? Math.max(0, currentSearchDepth - 4)
+          : currentSearchDepth
+      )
+    : null
+  const currentDispersion = activeDifficultyKey
+    ? (
+        usesStockfish
+          ? getCurrentStockfishDispersion({
+              fen,
+              difficultyKey: activeDifficultyKey,
+            })
+          : (difficulty?.randomRange ?? null)
+      )
+    : null
+  const currentDispersionLabel = currentDispersion === null ? '-' : String(currentDispersion)
+  const currentSearchDepthLabel = displayedSearchDepth === null ? '-' : String(displayedSearchDepth)
 
   /** 是否存在电脑角色，用于决定是否显示对局信息 */
   const hasComputerSide = mySideRole === 'computer' || opponentSideRole === 'computer'
@@ -1236,8 +1253,8 @@ function App() {
           hasComputerSide={hasComputerSide}
           mySideSummary={mySideSummary}
           opponentSideSummary={opponentSideSummary}
-          turnLabel={getColorLabel(game.turn())}
-          currentSearchDepth={displayedSearchDepth}
+          currentDispersionLabel={currentDispersionLabel}
+          currentSearchDepthLabel={currentSearchDepthLabel}
         />
 
           {/* 行棋记录区：按回合显示着法 */}

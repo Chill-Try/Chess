@@ -405,8 +405,8 @@ function startSearch(request) {
     config: {
       depth: searchPlan.depth,
       multiPv: searchPlan.multiPv,
-      randomWindowCp: searchPlan.randomWindowCp + searchPlan.openingRandomness,
-      randomnessScale: searchPlan.randomnessScale + searchPlan.openingRandomness,
+      randomWindowCp: searchPlan.randomWindowCp,
+      randomnessScale: searchPlan.openingRandomness,
     },
     variations: new Map(),
   }

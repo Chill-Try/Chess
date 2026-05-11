@@ -9,7 +9,7 @@
  * 显示当前对局的详细信息：
  * - 我方角色
  * - 敌方角色
- * - 当前行棋方
+ * - 当前发散程度
  * - 当前搜索深度
  *
  * ============================================================================
@@ -31,8 +31,8 @@ import PropTypes from 'prop-types'
  * @param {boolean} props.hasComputerSide - 是否存在电脑角色
  * @param {string} props.mySideSummary - 我方摘要
  * @param {string} props.opponentSideSummary - 敌方摘要
- * @param {string} props.turnLabel - 当前行棋方标签
- * @param {number} props.currentSearchDepth - 当前搜索深度
+ * @param {string} props.currentDispersionLabel - 当前发散程度标签
+ * @param {string} props.currentSearchDepthLabel - 当前搜索深度标签
  *
  * @returns {JSX.Element|null}
  *
@@ -42,8 +42,8 @@ export default function GameInfo({
   hasComputerSide,
   mySideSummary,
   opponentSideSummary,
-  turnLabel,
-  currentSearchDepth,
+  currentDispersionLabel,
+  currentSearchDepthLabel,
 }) {
   if (!hasComputerSide) {
     return null
@@ -67,16 +67,16 @@ export default function GameInfo({
           <dd>{opponentSideSummary}</dd>
         </div>
 
-        {/* 当前行棋方 */}
+        {/* 当前发散程度 */}
         <div>
-          <dt>当前行棋</dt>
-          <dd>{turnLabel}</dd>
+          <dt>当前发散程度</dt>
+          <dd>{currentDispersionLabel}</dd>
         </div>
 
         {/* 当前搜索深度 */}
         <div>
           <dt>当前深度</dt>
-          <dd>{currentSearchDepth}</dd>
+          <dd>{currentSearchDepthLabel}</dd>
         </div>
       </dl>
     </section>
@@ -93,8 +93,8 @@ GameInfo.propTypes = {
   mySideSummary: PropTypes.string.isRequired,
   /** 敌方摘要 */
   opponentSideSummary: PropTypes.string.isRequired,
-  /** 当前行棋方标签 */
-  turnLabel: PropTypes.string.isRequired,
-  /** 当前搜索深度 */
-  currentSearchDepth: PropTypes.number.isRequired,
+  /** 当前发散程度标签 */
+  currentDispersionLabel: PropTypes.string.isRequired,
+  /** 当前搜索深度标签 */
+  currentSearchDepthLabel: PropTypes.string.isRequired,
 }
