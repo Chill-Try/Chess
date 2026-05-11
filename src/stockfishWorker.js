@@ -61,39 +61,9 @@
  * UCI_Elo: 限制的 ELO 等级
  */
 
-import { DIFFICULTY_BY_KEY } from './ai/config'
-import { getDynamicStockfishDepth } from './lib/stockfishDepth'
+import { buildStockfishSearchPlan } from './lib/stockfishConfig'
 import { parseStockfishInfoLine, pickWeightedMove } from './lib/stockfishMultiPv'
-import stockfishEngineUrl from 'stockfish/bin/stockfish-18-asm.js?url'
-
-// ==================== Stockfish 配置 ====================
-
-/**
- * Stockfish 难度配置
- *
- * 针对困难和大师难度定制
- */
-const STOCKFISH_CONFIG = {
-  // ========== 困难难度 ==========
-  hard: {
-    depth: DIFFICULTY_BY_KEY.hard.stockfishDepth, // 8层搜索
-    movetime: null, // 不限制时间
-    limitStrength: true, // 开启强度限制
-    elo: 1700, // ELO 限制
-  },
-
-  // ========== 大师难度 ==========
-  master: {
-    depth: DIFFICULTY_BY_KEY.master.stockfishDepth, // 17层搜索
-    movetime: null,
-    skillLevel: 20, // 最高技能
-    limitStrength: false, // 不限制强度
-    elo: null,
-    multiPv: 2,
-    randomWindowCp: 20,
-    randomnessScale: 10,
-  },
-}
+import stockfishEngineUrl from 'stockfish/bin/stockfish-18-lite.js?url'
 
 // ==================== 引擎状态 ====================
 
@@ -422,17 +392,10 @@ function ensureEngine() {
 
 function startSearch(request) {
   const { requestId, fen, difficultyKey } = request
-  const config = STOCKFISH_CONFIG[difficultyKey]
-
-  if (!config) {
-    self.postMessage({ requestId, error: `Unsupported Stockfish difficulty: ${difficultyKey}` })
-    return
-  }
-
-  const depth = getDynamicStockfishDepth({
+  const searchPlan = buildStockfishSearchPlan({
     fen,
     difficultyKey,
-    baseDepth: config.depth,
+    hardwareConcurrency: self.navigator?.hardwareConcurrency ?? 1,
   })
 
   currentRequest = {
@@ -440,8 +403,10 @@ function startSearch(request) {
     fen,
     difficultyKey,
     config: {
-      ...config,
-      depth,
+      depth: searchPlan.depth,
+      multiPv: searchPlan.multiPv,
+      randomWindowCp: searchPlan.randomWindowCp + searchPlan.openingRandomness,
+      randomnessScale: searchPlan.randomnessScale + searchPlan.openingRandomness,
     },
     variations: new Map(),
   }
@@ -449,31 +414,12 @@ function startSearch(request) {
     requestId,
     difficultyKey,
     fen,
-    depth,
+    depth: searchPlan.depth,
   })
 
-  engine.postMessage('ucinewgame')
-
-  if (typeof config.skillLevel === 'number') {
-    engine.postMessage(`setoption name Skill Level value ${config.skillLevel}`)
+  for (const command of searchPlan.commands) {
+    engine.postMessage(command)
   }
-
-  engine.postMessage(`setoption name MultiPV value ${config.multiPv ?? 1}`)
-
-  engine.postMessage(`setoption name UCI_LimitStrength value ${config.limitStrength ? 'true' : 'false'}`)
-
-  if (config.limitStrength && config.elo) {
-    engine.postMessage(`setoption name UCI_Elo value ${config.elo}`)
-  }
-
-  engine.postMessage(`position fen ${fen}`)
-
-  if (config.movetime) {
-    engine.postMessage(`go movetime ${config.movetime}`)
-    return
-  }
-
-  engine.postMessage(`go depth ${depth}`)
 }
 
 // ==================== 主消息处理 ====================

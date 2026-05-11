@@ -1,21 +1,5 @@
+import { DIFFICULTY_BY_KEY } from '../ai/config.js'
 import { getSupportedEndgameProfileForFen } from '../ai/endgameBook.js'
-
-const STOCKFISH_DYNAMIC_DEPTH_BY_DIFFICULTY = {
-  hard: {
-    plateauMaterial: 6800,
-    stepMaterial: 1550,
-    maxDepth: 12,
-    rounding: 'floor',
-  },
-  master: {
-    plateauMaterial: 7300,
-    stepMaterial: 867,
-    maxDepth: 17,
-    rounding: 'round',
-  },
-}
-
-const STOCKFISH_FORCED_ENDGAME_DEPTH = 18
 
 const PIECE_VALUES = {
   p: 100,
@@ -57,14 +41,14 @@ function shouldForceStockfishEndgameDepth(fen, difficultyKey) {
 }
 
 export function getDynamicStockfishDepth({ fen, difficultyKey, baseDepth }) {
-  if (shouldForceStockfishEndgameDepth(fen, difficultyKey)) {
-    return Math.max(baseDepth, STOCKFISH_FORCED_ENDGAME_DEPTH)
-  }
-
-  const config = STOCKFISH_DYNAMIC_DEPTH_BY_DIFFICULTY[difficultyKey]
+  const config = DIFFICULTY_BY_KEY[difficultyKey]?.stockfishDepthCurve
 
   if (!config) {
     return baseDepth
+  }
+
+  if (shouldForceStockfishEndgameDepth(fen, difficultyKey)) {
+    return Math.max(baseDepth, config.forcedEndgameDepth)
   }
 
   const maxDepth = Math.max(baseDepth, config.maxDepth)

@@ -240,22 +240,32 @@ export const DIFFICULTY_LEVELS = [
   {
     key: 'hard',
     label: '困难',
-    depth: 4,           // 自定义 AI 搜索深度（但实际用 Stockfish）
     engine: 'stockfish', // 指定使用 Stockfish
     stockfishDepth: 8,  // Stockfish 搜索深度
-    randomRange: 8,
-    usePositionalEval: true,
-    positionalWeight: 1,
-    centerWeight: 18,
-    attackWeight: 0.08,
-    blunderWeight: 0.7,  // 较低的失误惩罚
-    coordinationWeight: 0.06,
-    pawnStructureWeight: 0.1,
-    tacticalWeight: 0.8,
+    // Stockfish 动态深度曲线：
+    // 当棋盘总子力下降到 plateauMaterial 以下后，搜索深度会按 stepMaterial 为步长逐级增加，
+    // 最终不超过 maxDepth；rounding 控制每一级增深时使用的取整策略。
+    // 若命中项目内置的基础必胜残局识别，则直接把深度至少提升到 forcedEndgameDepth。
+    stockfishDepthCurve: {
+      plateauMaterial: 6800,
+      stepMaterial: 1550,
+      maxDepth: 12,
+      rounding: 'floor',
+      forcedEndgameDepth: 18,
+    },
+    // Stockfish 开局随机度曲线：
+    // 开局前几回合使用更高随机度，随着回合推进逐步收敛到最终随机度。
+    // 这组参数同时用于开局库选点，以及脱离开局库后的 Stockfish MultiPV 随机选招。
+    stockfishOpeningRandomness: {
+      openingRandomnessStart: 14,
+      openingRandomnessEnd: 8,
+      openingRandomnessEndMoveNumber: 7,
+    },
     useOpeningBook: true,
-    openingWeight: 28,
     // Stockfish 配置（实际在 stockfishWorker.js 中应用）
-    // limitStrength: true, elo: 1700
+    limitStrength: true,
+    elo: 1700,
+    multiPv: 1,
   },
 
   // ========== 大师难度 ==========
@@ -263,22 +273,32 @@ export const DIFFICULTY_LEVELS = [
   {
     key: 'master',
     label: '大师',
-    depth: 4,
     engine: 'stockfish',
     stockfishDepth: 11,  // 开局基础深度，残局动态提升到更深
-    randomRange: 8,
-    usePositionalEval: true,
-    positionalWeight: 1,
-    centerWeight: 18,
-    attackWeight: 0.08,
-    blunderWeight: 0.7,
-    coordinationWeight: 0.06,
-    pawnStructureWeight: 0.1,
-    tacticalWeight: 0.8,
+    // Stockfish 动态深度曲线：
+    // 大师难度比困难难度更早开始增深，且每档步长更小，因此残局阶段会更积极地提高搜索深度。
+    // forcedEndgameDepth 用于命中基础必胜残局时的强制提深下限。
+    stockfishDepthCurve: {
+      plateauMaterial: 7300,
+      stepMaterial: 867,
+      maxDepth: 17,
+      rounding: 'round',
+      forcedEndgameDepth: 18,
+    },
+    // Stockfish 开局随机度曲线：
+    // 大师难度开局也允许一定发散，但会在较早阶段收敛到更稳的最终随机度。
+    stockfishOpeningRandomness: {
+      openingRandomnessStart: 18,
+      openingRandomnessEnd: 10,
+      openingRandomnessEndMoveNumber: 7,
+    },
     useOpeningBook: true,
-    openingWeight: 28,
     // Stockfish 配置
-    // skillLevel: 20（最高技能）
+    skillLevel: 20, // 最高技能
+    limitStrength: false,
+    multiPv: 2,
+    randomWindowCp: 20,
+    randomnessScale: 10,
   },
 ]
 

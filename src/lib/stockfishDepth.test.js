@@ -1,6 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { DIFFICULTY_BY_KEY } from '../ai/config.js'
 import { getDynamicStockfishDepth } from './stockfishDepth.js'
+
+test('hard 和 master 的 Stockfish 动态深度曲线配置暴露在 config.js 中', () => {
+  assert.deepEqual(DIFFICULTY_BY_KEY.hard.stockfishDepthCurve, {
+    plateauMaterial: 6800,
+    stepMaterial: 1550,
+    maxDepth: 12,
+    rounding: 'floor',
+    forcedEndgameDepth: 18,
+  })
+
+  assert.deepEqual(DIFFICULTY_BY_KEY.master.stockfishDepthCurve, {
+    plateauMaterial: 7300,
+    stepMaterial: 867,
+    maxDepth: 17,
+    rounding: 'round',
+    forcedEndgameDepth: 18,
+  })
+})
 
 test('hard 难度开局保持基础深度 8', () => {
   assert.equal(

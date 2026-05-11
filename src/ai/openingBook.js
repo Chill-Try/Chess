@@ -421,6 +421,13 @@ export const OPENING_BOOK = {
  * - 同时支持 SAN 和 LAN 格式
  * - 如果没有匹配返回 null（走自定义 AI）
  */
+export function selectBookMoveIndex(length, random = Math.random) {
+  if (length <= 1) {
+    return 0
+  }
+  return Math.min(length - 1, Math.floor(random() * length))
+}
+
 export function getOpeningMove(game, useBranches = true) {
   const bookMoves = OPENING_BOOK[getOpeningBookKey(game)]
 
@@ -437,10 +444,12 @@ export function getOpeningMove(game, useBranches = true) {
   if (typeof bookMoves === 'object' && !Array.isArray(bookMoves)) {
     // 有分支的情况
     if (useBranches && bookMoves.branches && bookMoves.branches.length > 0) {
-      // 随机选择一个分支
-      const selectedBranch =
-        bookMoves.branches[Math.floor(Math.random() * bookMoves.branches.length)]
-      candidateMoves = selectedBranch.moves
+      const branchPool = [
+        ...(bookMoves.moves ?? []).map((move) => ({ moves: [move] })),
+        ...bookMoves.branches,
+      ]
+      const selectedBranch = branchPool[selectBookMoveIndex(branchPool.length)]
+      candidateMoves = selectedBranch?.moves ?? []
     } else {
       // 使用主变
       candidateMoves = bookMoves.moves || []
@@ -459,8 +468,7 @@ export function getOpeningMove(game, useBranches = true) {
     return null
   }
 
-  // 随机选择一个（增加变化性）
-  return matchingMoves[Math.floor(Math.random() * matchingMoves.length)]
+  return matchingMoves[selectBookMoveIndex(matchingMoves.length)]
 }
 
 /**
