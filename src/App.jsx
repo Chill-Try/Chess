@@ -1240,7 +1240,7 @@ function App() {
           currentSearchDepth={displayedSearchDepth}
         />
 
-          {/* 走棋记录区：按回合显示着法 */}
+          {/* 行棋记录区：按回合显示着法 */}
           <MoveHistory turns={groupedMoveHistory} />
 
           {/* 音效设置区 */}

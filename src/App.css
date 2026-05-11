@@ -12,6 +12,7 @@
   --sidebar-main-width: 360px;
   --sidebar-side-width: 400px;
   --board-side-active-scale: 1.08;
+  --move-history-item-height: 18%;
 }
 
 body {
@@ -532,6 +533,10 @@ body {
   gap: 16px;
 }
 
+.moves-card {
+  grid-template-rows: auto 340px;
+}
+
 .opening-actions-card,
 .control-section {
   display: grid;
@@ -859,9 +864,11 @@ button.active.difficulty-button-disabled:hover {
   margin: 0;
   padding-left: 0;
   list-style: none;
-  max-height: 340px;
+  height: 340px;
   overflow: auto;
   display: grid;
+  align-content: start;
+  grid-auto-rows: var(--move-history-item-height);
   gap: 8px;
 }
 

@@ -10,7 +10,7 @@
 - 拖拽走子、落点高亮、将军闪烁
 - 非法拖拽时区分普通回弹与"暴露己王"警告
 - 只允许拖动当前行棋方的棋子
-- 走棋记录与当前对局信息展示
+- 行棋记录与当前对局信息展示
 - Web Worker 并行计算与 Stockfish 引擎集成
 
 ## 技术栈
@@ -54,7 +54,7 @@ src/
 │   ├── GameControls.jsx       # 控制面板
 │   ├── GameHeader.jsx         # 顶部状态区
 │   ├── GameInfo.jsx           # 对局信息区
-│   └── MoveHistory.jsx        # 走棋记录区
+│   └── MoveHistory.jsx        # 行棋记录区
 ├── hooks/
 │   └── useComputerMove.js     # 电脑走棋调度
 └── lib/

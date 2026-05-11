@@ -87,7 +87,7 @@ React UI
 - `GameHeader.jsx`：顶部标题、状态文案、思考提示、和棋提示
 - `GameControls.jsx`：模式切换、执棋颜色、难度选择、重新开始
 - `GameInfo.jsx`：当前对局信息
-- `MoveHistory.jsx`：走棋记录列表
+- `MoveHistory.jsx`：行棋记录列表
 - `OpeningActions.jsx`：执棋颜色与重新开始
 - `BoardSideStatus.jsx`：棋盘上下方身份牌、思考提示、获胜/和棋提示
 - `SoundSettings.jsx`：音效风格选择、音量调节、静音切换
@@ -136,7 +136,7 @@ React UI
 - 当前状态文案
 - 和棋原因文案
 - 颜色标签
-- 走棋记录按回合分组
+- 行棋记录按回合分组
 - 对局结束音效类别：
   - 我方胜利：`win`
   - 我方失败：`lose`

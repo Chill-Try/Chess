@@ -1,6 +1,6 @@
 /**
  * @file components/MoveHistory.jsx
- * @description 走棋记录展示组件
+ * @description 行棋记录展示组件
  *
  * ============================================================================
  * 模块职责
@@ -36,9 +36,11 @@
  */
 
 import PropTypes from 'prop-types'
+import { useLayoutEffect, useRef } from 'react'
+import { scrollMoveHistoryToBottom } from '../lib/moveHistoryScroll'
 
 /**
- * 走棋记录展示组件
+ * 行棋记录展示组件
  *
  * @param {Object} props
  * @param {Object[]} props.turns - 按回合分组的走法列表
@@ -57,12 +59,18 @@ import PropTypes from 'prop-types'
  * // 1. e4  e5
  */
 export default function MoveHistory({ turns }) {
+  const listRef = useRef(null)
+
+  useLayoutEffect(() => {
+    scrollMoveHistoryToBottom(listRef.current)
+  }, [turns])
+
   return (
     <section className="card moves-card">
-      <h2>走棋记录</h2>
+      <h2>行棋记录</h2>
 
       {/* 走法列表 */}
-      <ol className="moves-list">
+      <ol className="moves-list" ref={listRef}>
         {/* 空局面提示 */}
         {turns.length === 0 ? <li>对局尚未开始。</li> : null}
 

@@ -60,7 +60,7 @@ export const SoundStyle = {
 
 export const SoundStyleLabels = {
   [SoundStyle.WOODEN]: '木质',
-  [SoundStyle.MARBLE]: '大理石',
+  [SoundStyle.MARBLE]: '玻璃',
   [SoundStyle.PLASTIC]: '塑料',
 }
 

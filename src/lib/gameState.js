@@ -87,24 +87,14 @@ export function getCheckingSquares(game, color) {
  * - 这样可以保留完整的历史记录
  */
 export function cloneGameWithHistory(game) {
-  const nextGame = new Chess()
-
   try {
-    // 逐个应用历史走法
-    for (const move of game.history()) {
-      nextGame.move(move)
-    }
+    const nextGame = new Chess()
+    nextGame.loadPgn(game.pgn())
+    return nextGame
   } catch {
     // 作弊等直接改盘后，后续 SAN 历史可能已无法从标准历史回放。
     return new Chess(game.fen())
   }
-
-  if (nextGame.fen() !== game.fen()) {
-    // 作弊等直接改盘操作不会写入标准历史，此时必须以当前真实盘面为准。
-    return new Chess(game.fen())
-  }
-
-  return nextGame
 }
 
 /**
