@@ -195,6 +195,26 @@ export function canInteractWithSquare(game, square) {
   return Boolean(piece) && piece.color === game.turn()
 }
 
+function getCurrentTurnPieceSquares(game, shouldIncludePiece) {
+  const currentTurnColor = game.turn()
+  const squares = []
+  const board = game.board()
+
+  for (let rowIndex = 0; rowIndex < board.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < board[rowIndex].length; columnIndex += 1) {
+      const piece = board[rowIndex][columnIndex]
+
+      if (!piece || piece.color !== currentTurnColor || !shouldIncludePiece(piece)) {
+        continue
+      }
+
+      squares.push(`${String.fromCharCode(97 + columnIndex)}${8 - rowIndex}`)
+    }
+  }
+
+  return squares
+}
+
 function transformPiecesForCurrentTurn(game, shouldTransformPiece, nextPieceType) {
   if (game.isGameOver()) {
     return game
@@ -221,12 +241,52 @@ function transformPiecesForCurrentTurn(game, shouldTransformPiece, nextPieceType
   return nextGame
 }
 
-export function transformCurrentTurnPawnsToKnights(game) {
-  return transformPiecesForCurrentTurn(
-    game,
-    (piece) => piece.type === 'p' || piece.type === 'q',
-    'n'
+function pickRandomSquares(squares, count, random = Math.random) {
+  const pool = [...squares]
+  const pickedSquares = []
+  const targetCount = Math.min(Math.max(count, 0), pool.length)
+
+  for (let index = 0; index < targetCount; index += 1) {
+    const pickedIndex = Math.floor(random() * pool.length)
+    pickedSquares.push(pool[pickedIndex])
+    pool.splice(pickedIndex, 1)
+  }
+
+  return pickedSquares
+}
+
+export function transformCurrentTurnPawnsToKnights(game, random = Math.random) {
+  if (game.isGameOver()) {
+    return game
+  }
+
+  const nextGame = new Chess(game.fen())
+  const queenSquares = getCurrentTurnPieceSquares(nextGame, (piece) => piece.type === 'q')
+  const extraKnightCount = Math.max(0, 4 - queenSquares.length)
+  const pawnSquares = getCurrentTurnPieceSquares(
+    nextGame,
+    (piece) => piece.type === 'p'
   )
+  const selectedPawnSquares = pickRandomSquares(pawnSquares, extraKnightCount, random)
+  const remainingKnightCount = Math.max(0, extraKnightCount - selectedPawnSquares.length)
+  const nonPawnCandidateSquares = getCurrentTurnPieceSquares(
+    nextGame,
+    (piece) => piece.type !== 'k' && piece.type !== 'n' && piece.type !== 'q' && piece.type !== 'p'
+  )
+  const selectedNonPawnSquares = pickRandomSquares(nonPawnCandidateSquares, remainingKnightCount, random)
+
+  for (const square of [...selectedPawnSquares, ...selectedNonPawnSquares, ...queenSquares]) {
+    const piece = nextGame.get(square)
+
+    if (!piece || piece.type === 'k' || piece.type === 'n') {
+      continue
+    }
+
+    nextGame.remove(square)
+    nextGame.put({ type: 'n', color: piece.color }, square)
+  }
+
+  return nextGame
 }
 
 export function transformCurrentTurnNonKingPiecesToQueens(game) {
@@ -236,8 +296,8 @@ export function transformCurrentTurnNonKingPiecesToQueens(game) {
     .flat()
     .filter((piece) => piece && piece.color === currentTurnColor)
 
-  const hasNonKingNonPawnPiece = currentTurnPieces.some(
-    (piece) => piece.type !== 'k' && piece.type !== 'p'
+  const hasNonKingNonPawnNonQueenPiece = currentTurnPieces.some(
+    (piece) => piece.type !== 'k' && piece.type !== 'p' && piece.type !== 'q'
   )
 
   return transformPiecesForCurrentTurn(
@@ -247,7 +307,7 @@ export function transformCurrentTurnNonKingPiecesToQueens(game) {
         return false
       }
 
-      if (hasNonKingNonPawnPiece) {
+      if (hasNonKingNonPawnNonQueenPiece) {
         return piece.type !== 'p'
       }
 
