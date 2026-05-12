@@ -24,7 +24,7 @@ export function buildStockfishSearchPlan({
     baseDepth: difficulty.stockfishDepth ?? difficulty.depth,
   })
   const moveNumber = Number.parseInt(fen.split(' ')[5] ?? '1', 10) || 1
-  const openingRandomness = getStockfishOpeningRandomness(difficultyKey, moveNumber)
+  const openingRandomness = getStockfishOpeningRandomness(difficultyKey, moveNumber, fen)
 
   const threads = getStockfishThreads(hardwareConcurrency)
   const commands = ['ucinewgame', `setoption name Threads value ${threads}`]

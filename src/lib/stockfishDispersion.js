@@ -9,5 +9,5 @@ export function getCurrentStockfishDispersion({ fen, difficultyKey }) {
   }
 
   const moveNumber = Number.parseInt(fen.split(' ')[5] ?? '1', 10) || 1
-  return getStockfishOpeningRandomness(difficultyKey, moveNumber)
+  return getStockfishOpeningRandomness(difficultyKey, moveNumber, fen)
 }

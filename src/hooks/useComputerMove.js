@@ -54,7 +54,7 @@ import { getBookOrForcedMove, getCandidateMoves, pickBestMove } from '../chess-a
 import {
   createComputerMoveRequestContext,
 } from '../lib/computerMoveRequest'
-import { shouldUseStockfishBookMove } from '../lib/computerMoveScheduling'
+import { shouldSkipStockfishBookMove, shouldUseStockfishBookMove } from '../lib/computerMoveScheduling'
 import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
 
 /**
@@ -416,7 +416,9 @@ export function useComputerMove({
     }
 
     if (shouldUseStockfishBookMove({ difficultyKey, usesStockfish })) {
-      const forcedMove = getBookOrForcedMove(game.fen(), difficultyKey)
+      const forcedMove = shouldSkipStockfishBookMove({ difficultyKey })
+        ? null
+        : getBookOrForcedMove(game.fen(), difficultyKey)
 
       if (forcedMove) {
         initializeRequestContext()

@@ -38,6 +38,9 @@
  * ```
  */
 
+import { SOUND_CONFIG } from '../config'
+import { applyMoveSoundVariation } from './moveSoundVariation'
+
 // ==================== 音效类型枚举 ====================
 
 export const SoundType = {
@@ -302,7 +305,10 @@ class SoundManager {
    * 生成落子音效
    */
   generateMoveSound(startTime) {
-    const params = this.getMoveSoundParams()
+    const params = applyMoveSoundVariation(
+      this.getMoveSoundParams(),
+      SOUND_CONFIG.moveVariation
+    )
     const ctx = this.audioContext
     const now = startTime || ctx.currentTime
 

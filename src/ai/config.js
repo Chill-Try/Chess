@@ -262,6 +262,9 @@ export const DIFFICULTY_LEVELS = [
       openingRandomnessEndMoveNumber: 7,
     },
     useOpeningBook: true,
+    // 命中开局库时，有一定概率跳过开局库，直接进入 Stockfish 搜索。
+    // 这样即使开局库覆盖到当前局面，也不会每盘都机械地从库中选招。
+    openingBookSkipChance: 0.4,
     // Stockfish 配置（实际在 stockfishWorker.js 中应用）
     limitStrength: true,
     elo: 1700,
@@ -287,12 +290,19 @@ export const DIFFICULTY_LEVELS = [
     },
     // Stockfish 开局随机度曲线：
     // 大师难度开局也允许一定发散，但会在较早阶段收敛到更稳的最终随机度。
+    // 进入残局后，会再随剩余子力继续收敛，最终把发散度压到 endgameRandomnessEnd。
     stockfishOpeningRandomness: {
       openingRandomnessStart: 18,
       openingRandomnessEnd: 10,
       openingRandomnessEndMoveNumber: 7,
+      endgameRandomnessStartMaterial: 3300,
+      endgameRandomnessEndMaterial: 0,
+      endgameRandomnessEnd: 2,
     },
     useOpeningBook: true,
+    // 命中开局库时，有一定概率跳过开局库，直接进入 Stockfish 搜索。
+    // 这能增加开局阶段的变化，避免大师模式总是严格落在库招上。
+    openingBookSkipChance: 0.4,
     // Stockfish 配置
     skillLevel: 20, // 最高技能
     limitStrength: false,

@@ -18,6 +18,9 @@ test('Stockfish 难度的开局随机参数暴露在 config.js 中', () => {
     openingRandomnessStart: 18,
     openingRandomnessEnd: 10,
     openingRandomnessEndMoveNumber: 7,
+    endgameRandomnessStartMaterial: 3300,
+    endgameRandomnessEndMaterial: 0,
+    endgameRandomnessEnd: 2,
   })
 })
 
@@ -53,4 +56,15 @@ test('可按难度读取当前回合的 Stockfish 开局随机度', () => {
   assert.equal(getStockfishOpeningRandomness('hard', 7), 8)
   assert.equal(getStockfishOpeningRandomness('master', 1), 18)
   assert.equal(getStockfishOpeningRandomness('master', 7), 10)
+})
+
+test('master 难度在残局会把发散度继续压到 2', () => {
+  assert.equal(
+    getStockfishOpeningRandomness(
+      'master',
+      7,
+      '4k3/8/8/8/8/8/8/4K3 w - - 0 1'
+    ),
+    2
+  )
 })
