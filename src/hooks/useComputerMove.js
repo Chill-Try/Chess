@@ -54,7 +54,11 @@ import { getBookOrForcedMove, getCandidateMoves, pickBestMove } from '../chess-a
 import {
   createComputerMoveRequestContext,
 } from '../lib/computerMoveRequest'
+import { buildLegalMoves } from '../lib/chessLegalMoves'
 import { shouldSkipStockfishBookMove, shouldUseStockfishBookMove } from '../lib/computerMoveScheduling'
+import { requestOpenAiCompatibleMove } from '../lib/llm/openaiCompatibleClient'
+import { parseChessMoveResponse } from '../lib/llm/chessMoveParser'
+import { buildChessPrompt } from '../lib/llm/chessPrompt'
 import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
 
 /**
@@ -65,6 +69,9 @@ import { chunkMoves, getWorkerCount } from '../lib/workerUtils'
  * @param {string} params.gameMode - 游戏模式
  * @param {string} params.computerColor - 电脑执棋颜色
  * @param {string} params.difficultyKey - 难度键值
+ * @param {Object | null} params.aiModelConfig - AI 模型配置
+ * @param {Function} params.onAiThought - AI 思考结果回调
+ * @param {Function} params.onAiError - AI 错误回调
  * @param {boolean} params.usesStockfish - 是否使用 Stockfish
  * @param {Function} params.applyComputerMove - 应用电脑走法的回调
  *
@@ -76,6 +83,9 @@ export function useComputerMove({
   game,
   computerColor,
   difficultyKey,
+  aiModelConfig = null,
+  onAiThought,
+  onAiError,
   usesStockfish,
   minMoveDisplayMs = 800,
   gameSessionId,
@@ -118,6 +128,9 @@ export function useComputerMove({
   /** 延迟应用走法的定时器 */
   const applyMoveTimerRef = useRef(null)
 
+  /** 思考指示器延迟启动定时器 */
+  const thinkingIndicatorTimerRef = useRef(null)
+
   /** 最新棋局引用，避免 Worker 回调使用过期闭包 */
   const latestGameRef = useRef(game)
 
@@ -132,6 +145,12 @@ export function useComputerMove({
 
   /** 最新应用走法回调引用 */
   const latestApplyComputerMoveRef = useRef(applyComputerMove)
+
+  /** 最新 AI thought 回调 */
+  const latestOnAiThoughtRef = useRef(onAiThought)
+
+  /** 最新 AI error 回调 */
+  const latestOnAiErrorRef = useRef(onAiError)
 
   /** 当前请求锁定的展示时长 */
   const requestDisplayMsRef = useRef(0)
@@ -150,6 +169,8 @@ export function useComputerMove({
   latestDifficultyKeyRef.current = difficultyKey
   latestMinMoveDisplayMsRef.current = minMoveDisplayMs
   latestApplyComputerMoveRef.current = applyComputerMove
+  latestOnAiThoughtRef.current = onAiThought
+  latestOnAiErrorRef.current = onAiError
   latestGameSessionIdRef.current = gameSessionId
   suppressNewTurnsRef.current = suppressNewTurns
   isComputerThinkingRef.current = isComputerThinking
@@ -177,6 +198,8 @@ export function useComputerMove({
     requestDisplayMsRef.current = 0
     window.clearTimeout(applyMoveTimerRef.current)
     applyMoveTimerRef.current = null
+    window.clearTimeout(thinkingIndicatorTimerRef.current)
+    thinkingIndicatorTimerRef.current = null
     stockfishWorkerRef.current?.postMessage({ cancel: true })
 
     if (updateThinkingState && isComputerThinkingRef.current) {
@@ -229,6 +252,11 @@ export function useComputerMove({
     requestStartedAtRef.current = context.startedAt
     requestDisplayMsRef.current = context.displayMs
     requestSessionIdRef.current = context.sessionId
+  }
+
+  function reportAiError(error) {
+    const normalizedError = error instanceof Error ? error : new Error(String(error))
+    latestOnAiErrorRef.current?.(normalizedError)
   }
 
   // ========== 自定义 AI Worker 管理 ==========
@@ -358,9 +386,15 @@ export function useComputerMove({
   }, [applyComputerMove, runtimeKey])
 
   useEffect(() => {
+    const hasAiModelTurn = Boolean(aiModelConfig)
+    const hasCompleteAiModelConfig = Boolean(
+      aiModelConfig?.requestUrl
+      && aiModelConfig?.apiKey
+      && aiModelConfig?.modelName
+    )
     const shouldThink =
       Boolean(computerColor)
-      && Boolean(difficultyKey)
+      && (Boolean(difficultyKey) || hasAiModelTurn)
       && game.turn() === computerColor
       && !game.isGameOver()
 
@@ -378,14 +412,24 @@ export function useComputerMove({
       return undefined
     }
 
-    const indicatorTimer = window.setTimeout(() => {
+    if (hasAiModelTurn && !hasCompleteAiModelConfig) {
+      window.clearTimeout(thinkingIndicatorTimerRef.current)
+      thinkingIndicatorTimerRef.current = null
+      setIsComputerThinking(false)
+      return undefined
+    }
+
+    window.clearTimeout(thinkingIndicatorTimerRef.current)
+    thinkingIndicatorTimerRef.current = window.setTimeout(() => {
+      thinkingIndicatorTimerRef.current = null
       setIsComputerThinking(true)
     }, 0)
 
     return () => {
-      window.clearTimeout(indicatorTimer)
+      window.clearTimeout(thinkingIndicatorTimerRef.current)
+      thinkingIndicatorTimerRef.current = null
     }
-  }, [computerColor, difficultyKey, game, suppressNewTurns])
+  }, [aiModelConfig, computerColor, difficultyKey, game, suppressNewTurns])
 
   // ========== 主调度逻辑 ==========
 
@@ -395,9 +439,10 @@ export function useComputerMove({
     // 1. 不是双人模式
     // 2. 轮到电脑行棋
     // 3. 游戏未结束
+    const hasAiModelTurn = Boolean(aiModelConfig)
     const shouldThink =
       Boolean(computerColor)
-      && Boolean(difficultyKey)
+      && (Boolean(difficultyKey) || hasAiModelTurn)
       && game.turn() === computerColor
       && !game.isGameOver()
 
@@ -413,6 +458,112 @@ export function useComputerMove({
         gameSessionId: latestGameSessionIdRef.current,
       })
       return undefined
+    }
+
+    if (hasAiModelTurn) {
+      const isConfigComplete = Boolean(
+        aiModelConfig?.requestUrl
+        && aiModelConfig?.apiKey
+        && aiModelConfig?.modelName
+      )
+
+      if (!isConfigComplete) {
+        const error = new Error('AI 模型配置不完整')
+        console.warn('[useComputerMove] Incomplete AI model config', {
+          computerColor,
+          modelName: aiModelConfig?.modelName ?? '',
+        })
+        setIsComputerThinking(false)
+        activeSearchRef.current = null
+        reportAiError(error)
+
+        return () => {
+          if (suppressNewTurnsRef.current) {
+            return
+          }
+          cancelPendingComputerMoveInternal({ updateThinkingState: false })
+        }
+      }
+
+      initializeRequestContext()
+      pendingRequestRef.current += 1
+      const requestId = pendingRequestRef.current
+      const fen = game.fen()
+      const turn = game.turn()
+      const history = game.history()
+      const legalMoves = buildLegalMoves(game)
+      const modelName = aiModelConfig.modelName
+
+      activeSearchRef.current = { requestId, mode: 'aiModel' }
+
+      void (async () => {
+        try {
+          const { messages } = buildChessPrompt({
+            fen,
+            turn,
+            history,
+            legalMoves,
+          })
+
+          const content = await requestOpenAiCompatibleMove({
+            requestUrl: aiModelConfig.requestUrl,
+            apiKey: aiModelConfig.apiKey,
+            modelName,
+            messages,
+          })
+
+          if (requestId !== pendingRequestRef.current) {
+            return
+          }
+
+          const { thought, move } = parseChessMoveResponse(content)
+
+          if (requestId !== pendingRequestRef.current) {
+            return
+          }
+
+          const selectedMove = legalMoves.find((legalMove) => legalMove.san === move)
+
+          if (!selectedMove) {
+            throw new Error('AI 模型返回了非法走法')
+          }
+
+          activeSearchRef.current = null
+          latestOnAiThoughtRef.current?.({
+            thought,
+            move,
+            modelName,
+          })
+          applyMoveWithMinimumDelay(
+            {
+              from: selectedMove.from,
+              to: selectedMove.to,
+              ...(selectedMove.promotion ? { promotion: selectedMove.promotion } : {}),
+            },
+            requestId
+          )
+        } catch (error) {
+          if (requestId !== pendingRequestRef.current) {
+            return
+          }
+
+          console.error('[useComputerMove] AI model request failed', {
+            requestId,
+            error,
+            modelName,
+          })
+          setIsComputerThinking(false)
+          activeSearchRef.current = null
+          reportAiError(error)
+        }
+      })()
+
+      return () => {
+        if (suppressNewTurnsRef.current) {
+          return
+        }
+        cancelPendingComputerMoveInternal({ updateThinkingState: false })
+      }
     }
 
     if (shouldUseStockfishBookMove({ difficultyKey, usesStockfish })) {
@@ -551,7 +702,7 @@ export function useComputerMove({
       }
       cancelPendingComputerMoveInternal({ updateThinkingState: false })
     }
-  }, [applyComputerMove, computerColor, difficultyKey, game, suppressNewTurns, usesStockfish])
+  }, [aiModelConfig, applyComputerMove, computerColor, difficultyKey, game, suppressNewTurns, usesStockfish])
 
   // ========== 返回值 ==========
 

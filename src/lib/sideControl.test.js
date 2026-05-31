@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canManualMove, getComputerTurnConfig, getRoleForTurn, getSideColor } from './sideControl.js'
+import {
+  canManualMove,
+  getAiModelTurnConfig,
+  getComputerTurnConfig,
+  getRoleForTurn,
+  getSideColor,
+} from './sideControl.js'
 
 test('我方选择玩家时，仅我方回合允许手动操作', () => {
   assert.equal(
@@ -77,6 +83,39 @@ test('敌方选择玩家时，不会被识别为电脑回合', () => {
       opponentSideRole: 'player',
       myComputerDifficultyKey: 'medium',
       opponentComputerDifficultyKey: 'hard',
+    }),
+    null
+  )
+})
+
+test('我方选择 aiModel 时，当前回合会读取我方 AI 配置', () => {
+  const myAiConfig = { provider: 'openai', model: 'gpt-4.1-mini' }
+
+  assert.deepEqual(
+    getAiModelTurnConfig({
+      turnColor: 'w',
+      playerColor: 'w',
+      mySideRole: 'aiModel',
+      opponentSideRole: 'player',
+      myAiConfig,
+      opponentAiConfig: { provider: 'openrouter', model: 'x' },
+    }),
+    {
+      computerColor: 'w',
+      aiConfig: myAiConfig,
+    }
+  )
+})
+
+test('当前回合不是 aiModel 时，AI 配置返回 null', () => {
+  assert.equal(
+    getAiModelTurnConfig({
+      turnColor: 'b',
+      playerColor: 'w',
+      mySideRole: 'aiModel',
+      opponentSideRole: 'player',
+      myAiConfig: { provider: 'openai', model: 'gpt-4.1-mini' },
+      opponentAiConfig: { provider: 'openrouter', model: 'x' },
     }),
     null
   )

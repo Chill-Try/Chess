@@ -156,14 +156,13 @@ RoleCard.propTypes = {
   onRoleChange: PropTypes.func.isRequired,
 }
 
-function RoleRow({
+function RoleDetailCard({
   title,
   role,
   difficultyLevels,
   computerDifficultyKey,
   aiConfig,
   isDifficultyPending = false,
-  onRoleChange,
   onComputerDifficultyChange,
   onAiConfigChange,
 }) {
@@ -182,29 +181,28 @@ function RoleRow({
         config={aiConfig}
         onChange={onAiConfigChange}
       />
-    ) : null
+  ) : null
 
-  return (
-    <div className="role-row">
-      <RoleCard title={title} role={role} onRoleChange={onRoleChange} />
-      {sidePanel ? <div className="card role-side-panel">{sidePanel}</div> : null}
-    </div>
-  )
+  if (!sidePanel) {
+    return null
+  }
+
+  return <div className="card role-side-panel">{sidePanel}</div>
 }
 
-RoleRow.propTypes = {
+RoleDetailCard.propTypes = {
   title: PropTypes.string.isRequired,
   role: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
   difficultyLevels: DifficultySection.propTypes.difficultyLevels,
   computerDifficultyKey: PropTypes.string.isRequired,
   aiConfig: AiConfigSection.propTypes.config,
   isDifficultyPending: PropTypes.bool,
-  onRoleChange: PropTypes.func.isRequired,
   onComputerDifficultyChange: PropTypes.func.isRequired,
   onAiConfigChange: PropTypes.func.isRequired,
 }
 
 export default function GameControls({
+  section = 'both',
   mySideRole,
   opponentSideRole,
   myComputerDifficultyKey,
@@ -220,36 +218,78 @@ export default function GameControls({
   onMyAiConfigChange,
   onOpponentAiConfigChange,
 }) {
+  const opponentMainCard = (
+    <RoleCard title="敌方" role={opponentSideRole} onRoleChange={onOpponentSideRoleChange} />
+  )
+  const myMainCard = (
+    <RoleCard title="我方" role={mySideRole} onRoleChange={onMySideRoleChange} />
+  )
+
+  const opponentDetailCard = (
+    <RoleDetailCard
+      title="敌方"
+      role={opponentSideRole}
+      difficultyLevels={difficultyLevels}
+      computerDifficultyKey={opponentComputerDifficultyKey}
+      aiConfig={opponentAiConfig}
+      isDifficultyPending={isDifficultyPending}
+      onComputerDifficultyChange={onOpponentComputerDifficultyChange}
+      onAiConfigChange={onOpponentAiConfigChange}
+    />
+  )
+
+  const myDetailCard = (
+    <RoleDetailCard
+      title="我方"
+      role={mySideRole}
+      difficultyLevels={difficultyLevels}
+      computerDifficultyKey={myComputerDifficultyKey}
+      aiConfig={myAiConfig}
+      isDifficultyPending={isDifficultyPending}
+      onComputerDifficultyChange={onMyComputerDifficultyChange}
+      onAiConfigChange={onMyAiConfigChange}
+    />
+  )
+
+  const mainColumn = (
+    <div className="role-main-column">
+      {opponentMainCard}
+      {myMainCard}
+    </div>
+  )
+
+  const detailColumn = (
+    <div className="role-detail-column">
+      {opponentDetailCard}
+      {myDetailCard}
+    </div>
+  )
+
+  if (section === 'main') {
+    return mainColumn
+  }
+
+  if (section === 'detail') {
+    return detailColumn
+  }
+
   return (
     <div className="role-columns">
-      <RoleRow
-        title="敌方"
-        role={opponentSideRole}
-        difficultyLevels={difficultyLevels}
-        computerDifficultyKey={opponentComputerDifficultyKey}
-        aiConfig={opponentAiConfig}
-        isDifficultyPending={isDifficultyPending}
-        onRoleChange={onOpponentSideRoleChange}
-        onComputerDifficultyChange={onOpponentComputerDifficultyChange}
-        onAiConfigChange={onOpponentAiConfigChange}
-      />
+      <div className="role-row">
+        {opponentMainCard}
+        {opponentDetailCard}
+      </div>
 
-      <RoleRow
-        title="我方"
-        role={mySideRole}
-        difficultyLevels={difficultyLevels}
-        computerDifficultyKey={myComputerDifficultyKey}
-        aiConfig={myAiConfig}
-        isDifficultyPending={isDifficultyPending}
-        onRoleChange={onMySideRoleChange}
-        onComputerDifficultyChange={onMyComputerDifficultyChange}
-        onAiConfigChange={onMyAiConfigChange}
-      />
+      <div className="role-row">
+        {myMainCard}
+        {myDetailCard}
+      </div>
     </div>
   )
 }
 
 GameControls.propTypes = {
+  section: PropTypes.oneOf(['both', 'main', 'detail']),
   mySideRole: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
   opponentSideRole: PropTypes.oneOf(['player', 'computer', 'aiModel']).isRequired,
   myComputerDifficultyKey: PropTypes.string.isRequired,

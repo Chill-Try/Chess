@@ -13,6 +13,7 @@ React UI
 │   ├── GameInfo.jsx
 │   ├── MoveHistory.jsx
 │   ├── OpeningActions.jsx
+│   ├── AiThoughtPanel.jsx
 │   ├── BoardSideStatus.jsx
 │   └── SoundSettings.jsx
 ├── hooks/
@@ -89,8 +90,44 @@ React UI
 - `GameInfo.jsx`：当前对局信息
 - `MoveHistory.jsx`：行棋记录列表
 - `OpeningActions.jsx`：执棋颜色与重新开始
+- `AiThoughtPanel.jsx`：左侧 thought 面板，展示 `aiModel` 的状态、模型名、思路、走法与错误
 - `BoardSideStatus.jsx`：棋盘上下方身份牌、思考提示、获胜/和棋提示
 - `SoundSettings.jsx`：音效风格选择、音量调节、静音切换
+
+## UI 设计约束
+
+以下布局与文案属于当前项目的显式 UI 约束，后续 agent 修改时应默认保持，不要自行重排：
+
+1. 页面主区固定为三大区：
+   - 左侧：`AiThoughtPanel`
+   - 中间：棋盘与棋盘上下身份牌
+   - 右侧：控制侧栏
+
+2. 右侧控制侧栏使用“两列 + 多行”心智模型：
+   - 第一行左列是 `OpeningActions`
+   - 第二、三行是 `GameControls`，按“敌方一行、我方一行”配对显示
+   - `敌方` 必须与 `敌方难度 / 敌方 AI 配置` 同一水平行
+   - `我方` 必须与 `我方难度 / 我方 AI 配置` 同一水平行
+   - `GameInfo`、`MoveHistory`、`SoundSettings` 都位于左列
+
+3. 右侧左列卡片宽度必须统一：
+   - `OpeningActions`
+   - `敌方 / 我方` 角色卡
+   - `GameInfo`
+   - `MoveHistory`
+   - `SoundSettings`
+   这些卡片的宽度需要保持一致，避免以后出现角色卡更宽、信息卡更窄的回退。
+
+4. 左侧 `AiThoughtPanel` 的头部规则固定为：
+   - 标题格式：`AI (模型名)`
+   - 标题右侧显示状态胶囊
+   - 状态胶囊需要兼容错误态；错误文案直接融合在状态里，不单独再出现“错误”区块
+   - 面板正文只保留“思考”和“走法”两个内容区块
+
+5. `aiModel` 相关视觉约束：
+   - 左侧 thought 面板是模型链路的主要调试出口
+   - 不要把模型状态、错误信息重新塞回棋盘中央或右侧控制栏
+   - 若需新增 LLM 调试信息，优先扩展左侧 thought 面板或浏览器控制台，而不是打散到多个区域
 
 ## 通用工具层
 
@@ -180,11 +217,25 @@ React UI
 
 - 创建与销毁普通 AI Worker 和 Stockfish Worker
 - 用请求 ID 屏蔽过期结果
-- 根据难度决定走开局库、自定义 AI 或 Stockfish
+- 根据当前角色与难度决定走 `aiModel`、开局库、自定义 AI 或 Stockfish
 - 统一暴露 `isComputerThinking` 与取消逻辑
 - 处理 Stockfish 引擎失败时的降级逻辑（回退到自定义 AI）
 - 支持在 `pendingAction` 期间抑制新一轮电脑回合启动
 - 为按钮延迟动作提供“取消后续电脑走棋，但等待当前走棋自然结束”的调度基础
+
+新增的 `aiModel` 调度分支约束如下：
+
+- 当前回合角色为 `aiModel` 时，不走 Worker，而是由浏览器直接向 OpenAI-compatible 接口发请求
+- 请求内容会携带当前 FEN、最近行棋以及 `chess.js` 生成的合法走法列表
+- LLM 只允许从这份合法走法列表中选一步，不负责直接生成新局面
+- 返回结果会先解析出 `thought` 与 `move`，再用当前合法走法列表做二次校验
+- 只有命中合法列表的走法才会回到 `App.jsx` 落子；否则按错误处理，不写入棋盘
+
+对应 UI 反馈也统一经过这一层：
+
+- 开始请求时通知左侧 thought 面板进入“思考中”
+- 请求成功后回写模型名、简短思路与最终选步
+- 请求失败、配置缺失或返回非法走法时，回写错误信息供左侧面板展示
 
 这层的目标是让 `App.jsx` 不再直接管理 Worker 生命周期。
 
@@ -207,6 +258,17 @@ React UI
 - 解析 `bestmove` 输出并回传主线程
 - 实现错误恢复机制（最多重试 2 次）
 - 检测引擎失败并通知主线程
+
+### `src/lib/llm/`
+
+这一组模块负责 `aiModel` 的浏览器直连链路：
+
+- `chessLegalMoves.js`：把 `chess.js` 的 verbose 合法走法转换为结构化列表与 `uci`
+- `chessPrompt.js`：组装给模型的提示词，明确要求“只从合法走法里选一步”
+- `chessMoveParser.js`：解析严格 JSON 响应，提取 `thought` 与 `move`
+- `openaiCompatibleClient.js`：使用浏览器 `fetch` 调用 OpenAI-compatible 接口
+
+这些模块都不拥有棋局真相，只负责整理输入、请求模型和解析输出；最终是否能落子仍由 `chess.js` 决定。
 
 ## AI 层
 
@@ -381,10 +443,15 @@ Stockfish 相关难度的搜索深度策略已经扩展为动态深度：
 → App.jsx 验证并更新棋局
 → 若触发升变，则先弹出手动升变选择条
 → useComputerMove 检测轮到电脑
-→ 选择开局库 / 陷阱检测 / 普通 AI / Stockfish
-→ Worker 返回走法
+→ 若当前角色是 `aiModel`：
+  → 浏览器直连 OpenAI-compatible 接口
+  → LLM 从合法走法列表中选择一步并返回 `thought` + `move`
+  → useComputerMove 用当前合法走法再次校验返回走法
+→ 否则选择开局库 / 陷阱检测 / 普通 AI / Stockfish
+→ aiModel 或 Worker 返回走法
 → App.jsx 应用电脑走法 + 播放音效
 → React 重新渲染棋盘和侧栏
+```
 
 ### 延迟动作模式
 
@@ -396,7 +463,6 @@ Stockfish 相关难度的搜索深度策略已经扩展为动态深度：
 → 1 秒后应用目标动作
 → 清理高亮、闪烁、挂起升变等临时状态
 → 重新进入正常对局流
-```
 ```
 
 ### 双人模式
@@ -444,6 +510,7 @@ Stockfish 相关难度的搜索深度策略已经扩展为动态深度：
 
 3. **保留单一 AI 核心**
    - `chess-ai.js` 继续负责评估与选步，重构没有改动整体决策入口。
+   - 对于 `aiModel`，则复用相同调度入口，但把“选步”委托给浏览器直连的 OpenAI-compatible 请求。
 
 4. **程序化音效生成**
    - 使用 Web Audio API 实时合成音效，无需外部音频文件
@@ -466,11 +533,20 @@ Stockfish 相关难度的搜索深度策略已经扩展为动态深度：
    - 非法拖拽警告不调用 `move()` 强行试走，而是通过 `remove()/put()` 做视觉模拟
    - 这样可以覆盖“被钉住棋子横移导致暴露国王”这类 `move()` 会直接拒绝的场景
 
-9. **警告高亮是一次性状态**
+9. **LLM 只做选步，不做规则真源**
+   - `aiModel` 收到的是 `chess.js` 产出的合法走法白名单
+   - 模型只能从列表中挑选一步，不直接描述或构造新局面
+   - 最终合法性校验与棋局更新仍只通过 `chess.js` 完成
+
+10. **左侧 thought 面板是模型链路的可视化出口**
+   - `AiThoughtPanel.jsx` 统一展示模型状态、思路、走法与错误
+   - 这样可以把“请求中 / 返回成功 / 配置错误 / 非法响应”等状态从棋盘逻辑中拆出来单独观察
+
+11. **警告高亮是一次性状态**
    - `flashSquares` 同时服务于将军提示和非法拖拽警告
    - 每次新的拖拽或落子前先清理旧高亮与定时器，避免红色状态残留到下一次非法拖拽
 
-10. **残局识别与残局练习联动**
+12. **残局识别与残局练习联动**
    - `endgameBook.js` 提供残局家族识别能力
    - `stockfishDepth.js` 在命中基础必胜残局时把强方深度直接提到 `18`
    - `endgameDrill.js` 负责随机生成项目已支持的残局模板

@@ -75,6 +75,37 @@ export function getComputerTurnConfig({
 }
 
 /**
+ * 获取当前回合对应的 AI 模型配置。
+ *
+ * @param {Object} params
+ * @param {'w' | 'b'} params.turnColor
+ * @param {'w' | 'b'} params.playerColor
+ * @param {string} params.mySideRole
+ * @param {string} params.opponentSideRole
+ * @param {Object} params.myAiConfig
+ * @param {Object} params.opponentAiConfig
+ * @returns {{computerColor: 'w'|'b', aiConfig: Object} | null}
+ */
+export function getAiModelTurnConfig({
+  turnColor,
+  playerColor,
+  mySideRole,
+  opponentSideRole,
+  myAiConfig,
+  opponentAiConfig,
+}) {
+  if (turnColor === playerColor) {
+    return mySideRole === 'aiModel'
+      ? { computerColor: turnColor, aiConfig: myAiConfig }
+      : null
+  }
+
+  return opponentSideRole === 'aiModel'
+    ? { computerColor: turnColor, aiConfig: opponentAiConfig }
+    : null
+}
+
+/**
  * 是否允许当前回合进行手动走子。
  *
  * @param {Object} params
@@ -87,4 +118,3 @@ export function getComputerTurnConfig({
 export function canManualMove(params) {
   return getRoleForTurn(params) === 'player'
 }
-

@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { DIFFICULTY_BY_KEY, DIFFICULTY_LEVELS, getCurrentSearchDepth } from './chess-ai'
+import AiThoughtPanel from './components/AiThoughtPanel'
 import BoardSideStatus from './components/BoardSideStatus'
 import GameControls from './components/GameControls'
 import GameHeader from './components/GameHeader'
@@ -42,7 +43,7 @@ import {
   transformCurrentTurnPawnsToKnights,
 } from './lib/gameState'
 import { getColorLabel, getDrawNotice, getGameEndSound, getStatusText, groupMovesByTurn } from './lib/gameStatus'
-import { canManualMove, getComputerTurnConfig, getOpponentColor } from './lib/sideControl'
+import { canManualMove, getAiModelTurnConfig, getComputerTurnConfig, getOpponentColor } from './lib/sideControl'
 import { soundManager, SoundStyle, initSounds, playMoveSound, playCaptureSound, playCheckSound, playCheckmateSound, playDrawSound, playInvalidMoveSound, playWinSound } from './lib/soundManager'
 import './App.css'
 
@@ -51,6 +52,14 @@ const DEFAULT_AI_CONFIG = {
   requestUrl: '',
   apiKey: '',
   modelName: '',
+}
+
+const INITIAL_AI_THOUGHT_STATE = {
+  status: '未开始',
+  modelName: '',
+  thought: '',
+  move: '',
+  error: '',
 }
 
 const ROLE_LABELS = {
@@ -69,6 +78,18 @@ const PROMOTION_PIECE_SYMBOLS = {
   br: '♜',
   bb: '♝',
   bn: '♞',
+}
+
+function createInitialAiThoughtState() {
+  return { ...INITIAL_AI_THOUGHT_STATE }
+}
+
+function isAiThoughtStateInitial(state) {
+  return state.status === INITIAL_AI_THOUGHT_STATE.status
+    && state.modelName === INITIAL_AI_THOUGHT_STATE.modelName
+    && state.thought === INITIAL_AI_THOUGHT_STATE.thought
+    && state.move === INITIAL_AI_THOUGHT_STATE.move
+    && state.error === INITIAL_AI_THOUGHT_STATE.error
 }
 
 /**
@@ -106,6 +127,9 @@ function App() {
 
   /** @type {{requestUrl:string, apiKey:string, modelName:string}} 敌方 AI 模型配置 */
   const [opponentAiConfig, setOpponentAiConfig] = useState(DEFAULT_AI_CONFIG)
+
+  /** AI 思考面板状态 */
+  const [aiThoughtState, setAiThoughtState] = useState(createInitialAiThoughtState)
 
   /**
    * 棋盘重置计数器
@@ -192,7 +216,18 @@ function App() {
     opponentComputerDifficultyKey,
   })
 
+  const activeAiModelTurn = getAiModelTurnConfig({
+    turnColor: game.turn(),
+    playerColor,
+    mySideRole,
+    opponentSideRole,
+    myAiConfig,
+    opponentAiConfig,
+  })
+
   const activeDifficultyKey = activeComputerTurn?.difficultyKey ?? null
+  const activeAiModelConfig = activeAiModelTurn?.aiConfig ?? null
+  const isGameOver = game.isGameOver()
 
   /**
    * 当前难度配置的完整对象
@@ -291,6 +326,10 @@ function App() {
 
   const isCheatDisabled = game.isGameOver() || pendingAction !== null
 
+  const resetAiThoughtState = useCallback(() => {
+    setAiThoughtState((current) => (isAiThoughtStateInitial(current) ? current : createInitialAiThoughtState()))
+  }, [])
+
   // ==================== 回调函数 ====================
 
   /**
@@ -352,6 +391,26 @@ function App() {
     []
   )
 
+  const handleAiThought = useCallback((nextThought) => {
+    setAiThoughtState({
+      status: '已完成',
+      modelName: nextThought?.modelName ?? '',
+      thought: nextThought?.thought ?? '',
+      move: nextThought?.move ?? '',
+      error: '',
+    })
+  }, [])
+
+  const handleAiError = useCallback((error) => {
+    setAiThoughtState({
+      status: '出错',
+      modelName: activeAiModelConfig?.modelName ?? '',
+      thought: '',
+      move: '',
+      error: error instanceof Error ? error.message : String(error ?? ''),
+    })
+  }, [activeAiModelConfig?.modelName])
+
   /**
    * 电脑走棋 Hook
    *
@@ -367,8 +426,11 @@ function App() {
    */
   const { isComputerThinking, cancelPendingComputerMove } = useComputerMove({
     game,
-    computerColor: activeComputerTurn?.computerColor ?? null,
+    computerColor: activeAiModelTurn?.computerColor ?? activeComputerTurn?.computerColor ?? null,
     difficultyKey: activeComputerTurn?.difficultyKey ?? null,
+    aiModelConfig: activeAiModelConfig,
+    onAiThought: handleAiThought,
+    onAiError: handleAiError,
     usesStockfish,
     minMoveDisplayMs: computerMoveDelayMs,
     gameSessionId: gameSessionRef.current,
@@ -484,11 +546,47 @@ function App() {
         prevIsGameOverRef.current = false
         setHighlightedSquares({})
         setPendingPromotion(null)
+        resetAiThoughtState()
         setGame(createRandomSupportedEndgameDrill())
         setBoardResetCount(0)
       }
     }, 1000)
-  }, [isComputerThinking, isPendingActionDelayActive, pendingAction])
+  }, [isComputerThinking, isPendingActionDelayActive, pendingAction, resetAiThoughtState])
+
+  useEffect(() => {
+    if (pendingAction !== null || isGameOver) {
+      resetAiThoughtState()
+      return
+    }
+
+    if (!activeAiModelTurn) {
+      return
+    }
+
+    if (!isComputerThinking) {
+      return
+    }
+
+    const modelName = activeAiModelConfig?.modelName ?? ''
+
+    setAiThoughtState((current) => {
+      if (current.status === '已完成' || current.status === '出错') {
+        return current
+      }
+
+      if (current.status === '思考中' && current.modelName === modelName) {
+        return current
+      }
+
+      return {
+        status: '思考中',
+        modelName,
+        thought: '',
+        move: '',
+        error: '',
+      }
+    })
+  }, [activeAiModelConfig?.modelName, activeAiModelTurn, isComputerThinking, isGameOver, pendingAction, resetAiThoughtState])
 
   /**
    * 检测将军和游戏结束状态变化，播放对应音效
@@ -612,6 +710,7 @@ function App() {
     prevIsGameOverRef.current = false
     setPlayerColor(nextPlayerColor)
     setGame(new Chess())
+    resetAiThoughtState()
     // 强制重新挂载棋盘，用来清掉无效拖拽后的残影。
     setBoardResetCount(0)
     setHighlightedSquares({})
@@ -627,10 +726,21 @@ function App() {
     })
 
     cancelPendingComputerMove()
+    resetAiThoughtState()
     setPendingAction({
       type: 'reset',
       nextPlayerColor,
     })
+  }
+
+  function handleMySideRoleChange(nextRole) {
+    resetAiThoughtState()
+    setMySideRole(nextRole)
+  }
+
+  function handleOpponentSideRoleChange(nextRole) {
+    resetAiThoughtState()
+    setOpponentSideRole(nextRole)
   }
 
   function handleCheatAction(transformGame) {
@@ -672,6 +782,7 @@ function App() {
     }
 
     cancelPendingComputerMove()
+    resetAiThoughtState()
     setPendingAction({
       type: 'endgameDrill',
     })
@@ -741,6 +852,9 @@ function App() {
   }
 
   function handleAiConfigChange(side, field, value) {
+    cancelPendingComputerMove()
+    resetAiThoughtState()
+
     if (side === 'my') {
       setMyAiConfig((current) => ({
         ...current,
@@ -1144,7 +1258,11 @@ function App() {
       </header>
 
       <main className="app-shell">
-        {/* 左侧：棋盘区域 */}
+        <aside className="thoughts-sidebar">
+          <AiThoughtPanel state={aiThoughtState} />
+        </aside>
+
+        {/* 中间：棋盘区域 */}
         <section className="board-panel">
           {/* 顶部状态区：状态文案、和棋提示 */}
           <GameHeader
@@ -1230,37 +1348,35 @@ function App() {
             isResetPending={isResetPending}
           />
 
-          {/* 游戏控制区：模式切换、难度选择 */}
-          <GameControls
-            mySideRole={mySideRole}
-            opponentSideRole={opponentSideRole}
-            myComputerDifficultyKey={myComputerDifficultyKey}
-            opponentComputerDifficultyKey={opponentComputerDifficultyKey}
-            difficultyLevels={DIFFICULTY_LEVELS}
-            myAiConfig={myAiConfig}
-            opponentAiConfig={opponentAiConfig}
-            isDifficultyPending={isDifficultyPending}
-            onMySideRoleChange={setMySideRole}
-            onOpponentSideRoleChange={setOpponentSideRole}
-            onMyComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('my', difficultyKey)}
-            onOpponentComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('opponent', difficultyKey)}
-            onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
-            onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
+          <div className="sidebar-role-section">
+            <GameControls
+              mySideRole={mySideRole}
+              opponentSideRole={opponentSideRole}
+              myComputerDifficultyKey={myComputerDifficultyKey}
+              opponentComputerDifficultyKey={opponentComputerDifficultyKey}
+              difficultyLevels={DIFFICULTY_LEVELS}
+              myAiConfig={myAiConfig}
+              opponentAiConfig={opponentAiConfig}
+              isDifficultyPending={isDifficultyPending}
+              onMySideRoleChange={handleMySideRoleChange}
+              onOpponentSideRoleChange={handleOpponentSideRoleChange}
+              onMyComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('my', difficultyKey)}
+              onOpponentComputerDifficultyChange={(difficultyKey) => handleComputerDifficultyChange('opponent', difficultyKey)}
+              onMyAiConfigChange={(field, value) => handleAiConfigChange('my', field, value)}
+              onOpponentAiConfigChange={(field, value) => handleAiConfigChange('opponent', field, value)}
+            />
+          </div>
+
+          <GameInfo
+            hasComputerSide={hasComputerSide}
+            mySideSummary={mySideSummary}
+            opponentSideSummary={opponentSideSummary}
+            currentDispersionLabel={currentDispersionLabel}
+            currentSearchDepthLabel={currentSearchDepthLabel}
           />
 
-          {/* 对局信息区：显示玩家/电脑颜色、当前行棋方、难度、搜索深度 */}
-          <GameInfo
-          hasComputerSide={hasComputerSide}
-          mySideSummary={mySideSummary}
-          opponentSideSummary={opponentSideSummary}
-          currentDispersionLabel={currentDispersionLabel}
-          currentSearchDepthLabel={currentSearchDepthLabel}
-        />
-
-          {/* 行棋记录区：按回合显示着法 */}
           <MoveHistory turns={groupedMoveHistory} />
 
-          {/* 音效设置区 */}
           <SoundSettings
             style={soundStyle}
             volume={soundVolume}

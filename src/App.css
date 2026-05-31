@@ -9,8 +9,10 @@
   --text-dark: #3d2914;
   --text-medium: #6b4423;
   --accent-brown: #8b4513;
-  --sidebar-main-width: 360px;
-  --sidebar-side-width: 400px;
+  --thought-panel-width: clamp(240px, 18vw, 300px);
+  --sidebar-main-card-width: 340px;
+  --sidebar-main-width: min(100%, 340px);
+  --sidebar-side-width: min(100%, 360px);
   --board-side-active-scale: 1.08;
   --move-history-item-height: 18%;
 }
@@ -200,12 +202,17 @@ body {
 
 /* 木质面板效果 */
 .app-shell {
-  width: min(1280px, 100%);
+  width: min(1880px, 100%);
   margin: 0 auto;
-  padding: 126px 32px 32px;
+  padding: 118px 20px 24px;
   display: grid;
-  grid-template-columns: minmax(400px, 860px) minmax(320px, 380px);
-  gap: 24px;
+  grid-template-columns:
+    minmax(240px, var(--thought-panel-width))
+    minmax(620px, 1.55fr)
+    minmax(320px, 0.9fr);
+  grid-template-areas: 'thoughts board sidebar';
+  gap: clamp(16px, 1.6vw, 28px);
+  align-items: start;
 }
 
 .board-panel,
@@ -243,7 +250,14 @@ body {
 }
 
 .board-panel {
-  padding: 28px;
+  grid-area: board;
+  padding: clamp(18px, 2vw, 28px);
+  min-width: 0;
+}
+
+.thoughts-sidebar {
+  grid-area: thoughts;
+  min-width: 0;
 }
 
 .panel-header {
@@ -301,10 +315,10 @@ body {
 
 .board-wrap {
   width: 100%;
-  max-width: 800px;
+  max-width: clamp(760px, 68vw, 1040px);
   margin: 0 auto;
   display: grid;
-  gap: 12px;
+  gap: clamp(12px, 1.2vw, 16px);
 }
 
 .board-stage {
@@ -512,17 +526,109 @@ body {
 }
 
 .sidebar {
+  grid-area: sidebar;
   display: grid;
+  grid-template-columns: minmax(0, var(--sidebar-main-width)) minmax(0, var(--sidebar-side-width));
   align-content: start;
-  justify-items: start;
+  justify-items: stretch;
   gap: 18px;
   overflow: visible;
+  min-width: 0;
 }
 
 .card {
   padding: 20px;
   align-self: start;
   box-sizing: border-box;
+}
+
+.ai-thought-card {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+}
+
+.ai-thought-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-thought-card h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-dark);
+}
+
+.ai-thought-list {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.ai-thought-item {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(139, 105, 20, 0.1);
+  border: 1px solid rgba(139, 105, 20, 0.15);
+}
+
+.ai-thought-item dt {
+  margin: 0 0 8px;
+  font-size: 0.84rem;
+  color: var(--text-medium);
+}
+
+.ai-thought-item dd {
+  margin: 0;
+  color: var(--text-dark);
+  font-weight: 600;
+}
+
+.ai-thought-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+
+.ai-thought-item-error {
+  background: rgba(175, 47, 47, 0.12);
+  border-color: rgba(175, 47, 47, 0.22);
+}
+
+.ai-thought-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  max-width: min(100%, 220px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: rgba(139, 105, 20, 0.12);
+  color: var(--text-dark);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ai-thought-status.is-idle {
+  background: rgba(139, 105, 20, 0.12);
+}
+
+.ai-thought-status.is-thinking {
+  background: rgba(180, 136, 43, 0.2);
+  color: #7a5512;
+}
+
+.ai-thought-status.is-complete {
+  background: rgba(34, 139, 94, 0.18);
+  color: #1f6b48;
+}
+
+.ai-thought-status.is-error {
+  background: rgba(175, 47, 47, 0.16);
+  color: #8f2525;
 }
 
 .info-card,
@@ -548,10 +654,14 @@ body {
 .moves-card,
 .sound-card,
 .role-card {
-  width: var(--sidebar-main-width);
+  width: var(--sidebar-main-card-width);
+  max-width: var(--sidebar-main-card-width);
 }
 
 .role-columns,
+.role-main-column,
+.role-detail-column,
+.sidebar-role-section,
 .role-row,
 .role-card,
 .role-config-section,
@@ -560,8 +670,26 @@ body {
   gap: 14px;
 }
 
+.role-main-column,
+.role-detail-column,
+.sidebar-role-section {
+  align-content: start;
+  min-width: 0;
+}
+
 .role-columns {
   gap: 18px;
+}
+
+.sidebar > .opening-actions-card,
+.sidebar > .info-card,
+.sidebar > .moves-card,
+.sidebar > .sound-card {
+  grid-column: 1;
+}
+
+.sidebar-role-section {
+  grid-column: 1 / -1;
 }
 
 .role-row {
@@ -910,10 +1038,29 @@ button.active.difficulty-button-disabled:hover {
   background: var(--wood-dark);
 }
 
-@media (max-width: 1060px) {
+@media (max-width: 1560px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      'board'
+      'thoughts'
+      'sidebar';
     padding: 116px 18px 18px;
+  }
+
+  .thoughts-sidebar,
+  .sidebar {
+    justify-items: stretch;
+  }
+}
+
+@media (max-width: 1060px) {
+  .app-shell {
+    padding: 116px 18px 18px;
+  }
+
+  .sidebar {
+    grid-template-columns: 1fr;
   }
 
   .board-panel {
@@ -937,11 +1084,32 @@ button.active.difficulty-button-disabled:hover {
     justify-items: center;
   }
 
+  .board-wrap {
+    max-width: 100%;
+  }
+
+  .ai-thought-card,
+  .opening-actions-card,
+  .info-card,
+  .moves-card,
+  .sound-card,
+  .role-card,
+  .role-side-panel {
+    width: 100%;
+  }
+
+  .role-columns {
+    grid-template-columns: 1fr;
+  }
+
   .role-row {
     width: auto;
     grid-template-columns: 1fr;
   }
 
+  .role-main-column,
+  .role-detail-column,
+  .sidebar-role-section,
   .role-side-panel {
     align-self: stretch;
   }
