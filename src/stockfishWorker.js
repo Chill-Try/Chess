@@ -63,7 +63,8 @@
 
 import { buildStockfishSearchPlan } from './lib/stockfishConfig'
 import { parseStockfishInfoLine, pickWeightedMove } from './lib/stockfishMultiPv'
-import stockfishEngineUrl from 'stockfish/bin/stockfish-18-lite.js?url'
+import stockfishEngineUrl from 'stockfish/bin/stockfish-18-lite-single.js?url'
+import stockfishWasmUrl from 'stockfish/bin/stockfish-18-lite-single.wasm?url'
 
 // ==================== 引擎状态 ====================
 
@@ -321,7 +322,7 @@ function ensureEngine() {
     console.info('[stockfishWorker] Creating stockfish engine worker')
 
     // 创建 Worker
-    engine = new Worker(stockfishEngineUrl)
+    engine = new Worker(`${stockfishEngineUrl}#${encodeURIComponent(stockfishWasmUrl)}`)
 
     // 消息处理
     engine.onmessage = (event) => {

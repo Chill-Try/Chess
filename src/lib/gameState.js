@@ -20,6 +20,10 @@
 
 import { Chess } from 'chess.js'
 
+function createGameFromCurrentFen(game) {
+  return new Chess(game.fen(), { skipValidation: true })
+}
+
 /**
  * 查找指定颜色国王的位置
  *
@@ -46,6 +50,39 @@ export function getKingSquare(game, color) {
   }
 
   return null
+}
+
+export function getCapturedKingColor(game) {
+  const whiteKingSquare = getKingSquare(game, 'w')
+  const blackKingSquare = getKingSquare(game, 'b')
+
+  if (!whiteKingSquare && blackKingSquare) {
+    return 'w'
+  }
+
+  if (!blackKingSquare && whiteKingSquare) {
+    return 'b'
+  }
+
+  return null
+}
+
+export function getWinningColor(game) {
+  const capturedKingColor = getCapturedKingColor(game)
+
+  if (capturedKingColor) {
+    return capturedKingColor === 'w' ? 'b' : 'w'
+  }
+
+  if (game.isCheckmate()) {
+    return game.turn() === 'w' ? 'b' : 'w'
+  }
+
+  return null
+}
+
+export function isGameOverByBoardState(game) {
+  return Boolean(getCapturedKingColor(game)) || game.isGameOver()
 }
 
 /**
@@ -93,7 +130,7 @@ export function cloneGameWithHistory(game) {
     return nextGame
   } catch {
     // 作弊等直接改盘后，后续 SAN 历史可能已无法从标准历史回放。
-    return new Chess(game.fen())
+    return createGameFromCurrentFen(game)
   }
 }
 
@@ -117,7 +154,7 @@ export function cloneGameWithHistory(game) {
  */
 export function applyMoveToGame(currentGame, move, expectedTurn) {
   // 验证走法
-  if (!move || currentGame.isGameOver() || currentGame.turn() !== expectedTurn) {
+  if (!move || isGameOverByBoardState(currentGame) || currentGame.turn() !== expectedTurn) {
     return currentGame
   }
 
@@ -156,7 +193,7 @@ export function getExposedKingSquaresAfterVisualMove(game, move) {
     return []
   }
 
-  const simulatedGame = new Chess(game.fen())
+  const simulatedGame = createGameFromCurrentFen(game)
 
   simulatedGame.remove(move.from)
   simulatedGame.remove(move.to)
@@ -216,11 +253,11 @@ function getCurrentTurnPieceSquares(game, shouldIncludePiece) {
 }
 
 function transformPiecesForCurrentTurn(game, shouldTransformPiece, nextPieceType) {
-  if (game.isGameOver()) {
+  if (isGameOverByBoardState(game)) {
     return game
   }
 
-  const nextGame = new Chess(game.fen())
+  const nextGame = createGameFromCurrentFen(game)
   const currentTurnColor = nextGame.turn()
   const board = nextGame.board()
 
@@ -256,11 +293,11 @@ function pickRandomSquares(squares, count, random = Math.random) {
 }
 
 export function transformCurrentTurnPawnsToKnights(game, random = Math.random) {
-  if (game.isGameOver()) {
+  if (isGameOverByBoardState(game)) {
     return game
   }
 
-  const nextGame = new Chess(game.fen())
+  const nextGame = createGameFromCurrentFen(game)
   const queenSquares = getCurrentTurnPieceSquares(nextGame, (piece) => piece.type === 'q')
   const extraKnightCount = Math.max(0, 4 - queenSquares.length)
   const pawnSquares = getCurrentTurnPieceSquares(

@@ -37,8 +37,10 @@ import {
   canInteractWithSquare,
   cloneGameWithHistory,
   getCheckingSquares,
+  getWinningColor,
   getExposedKingSquaresAfterVisualMove,
   getKingSquare,
+  isGameOverByBoardState,
   transformCurrentTurnNonKingPiecesToQueens,
   transformCurrentTurnPawnsToKnights,
 } from './lib/gameState'
@@ -102,6 +104,8 @@ function isAiThoughtStateInitial(state) {
  * 4. React 自动重新渲染，展示新局面
  */
 function App() {
+  const publicBaseUrl = import.meta.env.BASE_URL
+
   // ==================== 状态定义 ====================
 
   /** @type {Chess} 棋局状态完整实例，包含所有历史着法 */
@@ -227,7 +231,7 @@ function App() {
 
   const activeDifficultyKey = activeComputerTurn?.difficultyKey ?? null
   const activeAiModelConfig = activeAiModelTurn?.aiConfig ?? null
-  const isGameOver = game.isGameOver()
+  const isGameOver = isGameOverByBoardState(game)
 
   /**
    * 当前难度配置的完整对象
@@ -256,7 +260,7 @@ function App() {
    * 用途：显示给玩家的 AI 思考深度信息
    * 注意：Stockfish 难度显示的是 stockfishDepth，自定义 AI 显示配置的 depth
    */
-  const currentSearchDepth = activeDifficultyKey ? getCurrentSearchDepth(fen, activeDifficultyKey) : 0
+  const currentSearchDepth = activeDifficultyKey && !isGameOver ? getCurrentSearchDepth(fen, activeDifficultyKey) : 0
   const displayedSearchDepth = activeComputerTurn
     ? (
         usesStockfish
@@ -264,7 +268,7 @@ function App() {
           : currentSearchDepth
       )
     : null
-  const currentDispersion = activeDifficultyKey
+  const currentDispersion = activeDifficultyKey && !isGameOver
     ? (
         usesStockfish
           ? getCurrentStockfishDispersion({
@@ -295,7 +299,7 @@ function App() {
    * - 棋局未结束（!game.isGameOver()）
    * - 并且（双人模式 或者 当前轮到玩家执棋）
    */
-  const canMove = !game.isGameOver() && canManualMove({
+  const canMove = !isGameOver && canManualMove({
     turnColor: game.turn(),
     playerColor,
     mySideRole,
@@ -311,12 +315,6 @@ function App() {
   /** 最后一步走法，格式为 {from, to, captured, ...}，用于高亮上一手 */
   const lastMove = verboseHistory.at(-1) ?? null
 
-  /**
-   * 和棋提示文案
-   * 来源：根据游戏状态判断返回对应和棋原因
-   */
-  const drawNotice = getDrawNotice(game)
-
   /** 状态栏显示的文本，根据游戏状态动态生成 */
   const statusText = getStatusText(game, {
     playerColor,
@@ -324,7 +322,7 @@ function App() {
     opponentSideRole,
   })
 
-  const isCheatDisabled = game.isGameOver() || pendingAction !== null
+  const isCheatDisabled = isGameOver || pendingAction !== null
 
   const resetAiThoughtState = useCallback(() => {
     setAiThoughtState((current) => (isAiThoughtStateInitial(current) ? current : createInitialAiThoughtState()))
@@ -448,8 +446,14 @@ function App() {
   const isCheatPending = pendingAction?.type === 'cheat'
   const isDifficultyPending = pendingAction?.type === 'difficulty'
   const isEndgameDrillPending = pendingAction?.type === 'endgameDrill'
-  const isDraw = game.isDraw()
-  const winningColor = game.isCheckmate() ? getOpponentColor(game.turn()) : null
+  const winningColor = getWinningColor(game)
+  const isDraw = !winningColor && game.isDraw()
+  /**
+   * 和棋提示文案
+   * 来源：根据游戏状态判断返回对应和棋原因
+   * 若已通过“吃王”判胜，则不再显示任何和棋提示。
+   */
+  const drawNotice = winningColor ? null : getDrawNotice(game)
   const opponentStatusText = isDraw
     ? '和棋'
     : winningColor === opponentColor
@@ -607,23 +611,23 @@ function App() {
     }
 
     // 检测将军
-    if (game.isCheck() && !prevIsCheckRef.current && !game.isCheckmate()) {
+    if (game.isCheck() && !prevIsCheckRef.current && !winningColor) {
       playCheckSound()
       prevIsCheckRef.current = true
     }
 
     // 如果之前被将军但现在不是，检测是否轮到新的一方
-    if (!game.isCheck() && prevIsCheckRef.current && !game.isCheckmate()) {
+    if (!game.isCheck() && prevIsCheckRef.current && !winningColor) {
       prevIsCheckRef.current = false
     }
 
     // 游戏结束时重置
-    if (game.isGameOver()) {
+    if (isGameOver) {
       prevIsGameOverRef.current = true
     } else {
       prevIsGameOverRef.current = false
     }
-  }, [fen, game])
+  }, [fen, game, isGameOver, playerColor, winningColor])
 
   // ==================== 样式计算 ====================
 
@@ -1115,18 +1119,24 @@ function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <h1 className="topbar-title">
-            <img className="topbar-logo" src="/chess-logo.svg" alt="" aria-hidden="true" />
-            <span>国际象棋</span>
+            <a className="topbar-title-link" href="/">
+              <img className="topbar-logo" src={`${publicBaseUrl}chess-logo.svg`} alt="" aria-hidden="true" />
+              <span>国际象棋</span>
+            </a>
           </h1>
 
           <div className="topbar-menu-group">
+            <a className="topbar-menu-trigger topbar-link-trigger" href="/">
+              <span>返回主页</span>
+            </a>
+
             <button
               className="topbar-menu-trigger"
               type="button"
               disabled={pendingAction !== null}
               onClick={handleEndgameDrill}
             >
-              <span>{isEndgameDrillPending ? '等待生成...' : '残局对抗'}</span>
+              <span>{isEndgameDrillPending ? '等待生成...' : '终局练习'}</span>
             </button>
 
             <div className="topbar-menu">
@@ -1275,7 +1285,7 @@ function App() {
             <BoardSideStatus
               label={getColorLabel(opponentColor)}
               detail={opponentBoardSideDetail}
-              isThinking={isCurrentSideThinking && game.turn() === opponentColor && !isDraw && !winningColor}
+            isThinking={isCurrentSideThinking && game.turn() === opponentColor && !isDraw && !winningColor}
               statusText={opponentStatusText}
               isActive={isOpponentHighlighted}
             />
@@ -1331,7 +1341,7 @@ function App() {
             <BoardSideStatus
               label={getColorLabel(playerColor)}
               detail={myBoardSideDetail}
-              isThinking={isCurrentSideThinking && game.turn() === playerColor && !isDraw && !winningColor}
+            isThinking={isCurrentSideThinking && game.turn() === playerColor && !isDraw && !winningColor}
               statusText={myStatusText}
               isActive={isMySideHighlighted}
             />
@@ -1344,7 +1354,7 @@ function App() {
             playerColor={playerColor}
             onColorChange={handleColorChange}
             onReset={() => scheduleResetGame()}
-            isGameOver={game.isGameOver()}
+            isGameOver={isGameOver}
             isResetPending={isResetPending}
           />
 

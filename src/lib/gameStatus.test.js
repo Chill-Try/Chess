@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Chess } from 'chess.js'
-import { getGameEndSound } from './gameStatus.js'
+import { getGameEndSound, getStatusText } from './gameStatus.js'
 
 test('我方获胜时返回胜利音效', () => {
   const game = new Chess('7k/6Q1/7K/8/8/8/8/8 b - - 0 1')
@@ -25,4 +25,21 @@ test('对局未结束时不返回结局音效', () => {
   const game = new Chess()
 
   assert.equal(getGameEndSound(game, 'w'), null)
+})
+
+test('某方王被吃掉时按胜负返回结局音效', () => {
+  const game = new Chess('7k/8/8/8/8/8/8/4K2Q b - - 0 1')
+  game.remove('h8')
+
+  assert.equal(getGameEndSound(game, 'w'), 'win')
+})
+
+test('某方王被吃掉时状态文案显示直接获胜', () => {
+  const game = new Chess('7k/8/8/8/8/8/8/4K2Q b - - 0 1')
+  game.remove('h8')
+
+  assert.equal(
+    getStatusText(game, { playerColor: 'w', mySideRole: 'player', opponentSideRole: 'player' }),
+    '王被吃掉，白方获胜。'
+  )
 })

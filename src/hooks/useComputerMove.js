@@ -56,6 +56,7 @@ import {
 } from '../lib/computerMoveRequest'
 import { buildLegalMoves } from '../lib/chessLegalMoves'
 import { shouldSkipStockfishBookMove, shouldUseStockfishBookMove } from '../lib/computerMoveScheduling'
+import { isGameOverByBoardState } from '../lib/gameState'
 import { requestOpenAiCompatibleMove } from '../lib/llm/openaiCompatibleClient'
 import { parseChessMoveResponse } from '../lib/llm/chessMoveParser'
 import { buildChessPrompt } from '../lib/llm/chessPrompt'
@@ -332,6 +333,13 @@ export function useComputerMove({
   // ========== Stockfish Worker 管理 ==========
 
   useEffect(() => {
+    if (!usesStockfish) {
+      stockfishWorkerRef.current?.postMessage({ cancel: true })
+      stockfishWorkerRef.current?.terminate()
+      stockfishWorkerRef.current = null
+      return undefined
+    }
+
     // 创建 Stockfish Worker
     const worker = new Worker(
       new URL('../stockfishWorker.js', import.meta.url),
@@ -381,9 +389,11 @@ export function useComputerMove({
       activeSearchRef.current = null
       worker.postMessage({ cancel: true })
       worker.terminate()
-      stockfishWorkerRef.current = null
+      if (stockfishWorkerRef.current === worker) {
+        stockfishWorkerRef.current = null
+      }
     }
-  }, [applyComputerMove, runtimeKey])
+  }, [usesStockfish, runtimeKey])
 
   useEffect(() => {
     const hasAiModelTurn = Boolean(aiModelConfig)
@@ -396,7 +406,7 @@ export function useComputerMove({
       Boolean(computerColor)
       && (Boolean(difficultyKey) || hasAiModelTurn)
       && game.turn() === computerColor
-      && !game.isGameOver()
+      && !isGameOverByBoardState(game)
 
     if (!shouldThink) {
       cancelPendingComputerMoveInternal({ updateThinkingState: false })

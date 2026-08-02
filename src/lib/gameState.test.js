@@ -4,6 +4,8 @@ import { Chess } from 'chess.js'
 import {
   applyMoveToGame,
   cloneGameWithHistory,
+  getWinningColor,
+  isGameOverByBoardState,
   transformCurrentTurnNonKingPiecesToQueens,
   transformCurrentTurnPawnsToKnights,
 } from './gameState.js'
@@ -163,4 +165,21 @@ test('残局对抗的自定义 FEN 局面在后续走子后仍会保留既有历
 
   assert.deepEqual(clonedAfterMove.history(), nextGame.history())
   assert.equal(clonedAfterMove.fen(), nextGame.fen())
+})
+
+test('少一方国王时应视为对局结束并判另一方获胜', () => {
+  const game = new Chess('7k/8/8/8/8/8/8/4K2Q b - - 0 1')
+  game.remove('h8')
+
+  assert.equal(isGameOverByBoardState(game), true)
+  assert.equal(getWinningColor(game), 'w')
+})
+
+test('少一方国王时仍可克隆当前真实盘面而不抛错', () => {
+  const game = new Chess('7k/8/8/8/8/8/8/4K2Q b - - 0 1')
+  game.remove('h8')
+
+  assert.doesNotThrow(() => cloneGameWithHistory(game))
+  assert.equal(cloneGameWithHistory(game).get('e1')?.type, 'k')
+  assert.equal(cloneGameWithHistory(game).get('h1')?.type, 'q')
 })

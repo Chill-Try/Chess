@@ -81,6 +81,22 @@ body {
   color: var(--text-dark);
 }
 
+.topbar-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.topbar-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-title-link:hover,
+.topbar-title-link:focus-visible {
+  color: var(--accent-brown);
+}
+
 .topbar-logo {
   width: clamp(28px, 3vw, 36px);
   height: clamp(28px, 3vw, 36px);
@@ -103,6 +119,10 @@ body {
   font-size: 0.98rem;
   font-weight: 700;
   box-shadow: none;
+}
+
+.topbar-link-trigger {
+  text-decoration: none;
 }
 
 .topbar-menu-trigger:hover {

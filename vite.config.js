@@ -13,6 +13,7 @@ import react from '@vitejs/plugin-react'
 
 /** @type {import('vite').UserConfig} */
 export default defineConfig({
+  base: '/chess/',
   plugins: [react()],
   server: {
     headers: {

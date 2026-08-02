@@ -25,6 +25,8 @@
  * 这些函数被 App.jsx 使用，生成 UI 显示所需的数据
  */
 
+import { getCapturedKingColor, getWinningColor } from './gameState.js'
+
 /**
  * 获取颜色标签
  *
@@ -56,6 +58,13 @@ export function getColorLabel(color) {
  * 6. 正常局面 -> "轮到X行棋。/ 轮到你走，你执X。/ 电脑正在执X行棋。"
  */
 export function getStatusText(game, { playerColor, mySideRole, opponentSideRole }) {
+  const capturedKingColor = getCapturedKingColor(game)
+
+  if (capturedKingColor) {
+    const winner = getColorLabel(capturedKingColor === 'w' ? 'b' : 'w')
+    return `王被吃掉，${winner}获胜。`
+  }
+
   // ========== 将死 ==========
   if (game.isCheckmate()) {
     // 将死时，turn() 返回的是输家（下一步该走但无子可动）
@@ -142,8 +151,9 @@ export function getDrawNotice(game) {
  * @returns {'win'|'checkmate'|'draw'|null}
  */
 export function getGameEndSound(game, playerColor) {
-  if (game.isCheckmate()) {
-    const winnerColor = game.turn() === 'w' ? 'b' : 'w'
+  const winnerColor = getWinningColor(game)
+
+  if (winnerColor) {
     return winnerColor === playerColor ? 'win' : 'checkmate'
   }
 
